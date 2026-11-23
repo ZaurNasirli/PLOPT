@@ -1,5 +1,5 @@
 import { Order, Route } from '../../types';
-import { RoutingLimits } from '../routingService';
+import type { RoutingLimits } from '../routingService';
 
 export type OptimizationMode = 'fast' | 'balanced' | 'quality' | 'cost_saver' | 'fleet_saver' | 'time_saver';
 
@@ -44,6 +44,23 @@ export interface SmartVRPConfig {
   defaultServiceTimeMinutes: number; // default service duration per customer stop (e.g. 10 min)
   depotStartHour: number;           // 08:00 start of dispatch day
   maxRouteDurationHours: number;    // 10 hours max shift duration
+
+  // --- Search time budget ---
+  /** Overrides the mode's default time budget (milliseconds) */
+  timeBudgetMs?: number;
+}
+
+/**
+ * Time budget for one optimization (one date/time-slot group), by mode and number of stops.
+ * The search (multi-start + ruin & recreate) uses the whole budget and stops on time.
+ */
+export function getTimeBudgetMs(config: SmartVRPConfig, stops: number): number {
+  if (config.timeBudgetMs && config.timeBudgetMs > 0) return config.timeBudgetMs;
+  switch (config.mode) {
+    case 'fast': return Math.min(6000, 1500 + 15 * stops);
+    case 'quality': return Math.min(40000, 6000 + 100 * stops);
+    default: return Math.min(15000, 3000 + 40 * stops);
+  }
 }
 
 export const DEFAULT_VRP_CONFIG_BALANCED: SmartVRPConfig = {

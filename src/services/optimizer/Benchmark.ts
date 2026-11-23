@@ -1,5 +1,5 @@
 import { Order } from '../../types';
-import { RoutingLimits } from '../routingService';
+import type { RoutingLimits } from '../routingService';
 import { WAREHOUSE_LOCATION } from '../../mockData';
 import { buildRoadMatrixLookup, RoadMatrixLookup } from './DistanceMatrix';
 import { getVRPConfigForMode } from './types';

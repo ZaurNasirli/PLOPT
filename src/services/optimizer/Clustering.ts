@@ -1,8 +1,8 @@
 import { Order } from '../../types';
-import { RoutingLimits } from '../routingService';
+import type { RoutingLimits } from '../routingService';
 import { WAREHOUSE_LOCATION } from '../../mockData';
-import { calculateDistance } from '../routingService';
-import { RoadMatrixLookup } from './DistanceMatrix';
+import { calculateDistance } from '../geo';
+import { RoadMatrixLookup } from './RoadMatrix';
 import { getDepotAngle, getAngleDiff } from './ObjectiveFunction';
 import { LOAD_TOLERANCE } from './ConstraintValidator';
 

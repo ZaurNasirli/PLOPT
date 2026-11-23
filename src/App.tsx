@@ -13,13 +13,15 @@ import {
 import * as XLSX from 'xlsx';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
-import { Order, Route, StreetHighlight, StreetGroup, Store, RouteVersion, TruckType, Zone, StoreMarkerLabelMode, StoreMarkerLabelOption, Driver, Shift, RoadBarrier } from './types';
+import { Order, Route, StreetHighlight, StreetGroup, Store, RouteVersion, TruckType, Zone, StoreMarkerLabelMode, StoreMarkerLabelOption, Driver, Shift, RoadBarrier, StoreRecord } from './types';
 import { RotaPage, INITIAL_DRIVERS, INITIAL_SHIFTS } from './components/RotaPage';
 import { useCloudSync } from './hooks/useCloudSync';
 import { CloudSyncButton } from './components/common/CloudSyncButton';
 import { BarriersPanel } from './components/barriers/BarriersPanel';
 import { setRoadBarriers, getBarrierHash, getActiveBarriers, anyBarrierTouchesPath } from './services/barriers/barrierStore';
 import { valhallaLocate } from './services/barriers/valhallaClient';
+import { buildStoreLookup, upsertStores } from './services/storeDirectory';
+import { roadCache } from './services/cloud/roadCache';
 import { AlgorithmSelector } from './components/AlgorithmSelector';
 import { BulkActionsMenu } from './components/BulkActionsMenu';
 import { RouterModal } from './components/RouterModal';
@@ -756,6 +758,19 @@ export default function App() {
     safeSetStorageItem('routeVersions', JSON.stringify(routeVersions));
   }, [routeVersions]);
 
+  // --- Store directory: every store ever imported (synced to the cloud database) ---
+  const [storeDirectory, setStoreDirectory] = useState<StoreRecord[]>(() => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem('store_directory_v1') || 'null');
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
+  useEffect(() => {
+    safeSetStorageItem('store_directory_v1', JSON.stringify(storeDirectory));
+  }, [storeDirectory]);
+
   // --- Road barriers (closed roads the router must avoid) ---
   const [barriers, setBarriers] = useState<RoadBarrier[]>(() => {
     try {
@@ -814,8 +829,9 @@ export default function App() {
     drivers,
     shifts,
     barriers,
+    storeDirectory,
     settings: { routingLimits, streetLineWidth, streetLineOpacity }
-  }), [orders, routes, routeVersions, streetHighlights, streetGroups, drivers, shifts, barriers, routingLimits, streetLineWidth, streetLineOpacity]);
+  }), [orders, routes, routeVersions, streetHighlights, streetGroups, drivers, shifts, barriers, storeDirectory, routingLimits, streetLineWidth, streetLineOpacity]);
 
   const applyCloudData = useCallback((data: Record<string, unknown>) => {
     if (Array.isArray(data.orders)) setOrders(data.orders as Order[]);
@@ -826,6 +842,7 @@ export default function App() {
     if (Array.isArray(data.drivers)) setDrivers(data.drivers as Driver[]);
     if (Array.isArray(data.shifts)) setShifts(data.shifts as Shift[]);
     if (Array.isArray(data.barriers)) setBarriers(data.barriers as RoadBarrier[]);
+    if (Array.isArray(data.storeDirectory)) setStoreDirectory(data.storeDirectory as StoreRecord[]);
     const settings = data.settings as { routingLimits?: Partial<RoutingLimits>; streetLineWidth?: number; streetLineOpacity?: number } | undefined;
     if (settings?.routingLimits) {
       setRoutingLimits(prev => ({
@@ -842,6 +859,20 @@ export default function App() {
   }, []);
 
   const cloud = useCloudSync(cloudValues, applyCloudData);
+
+  // Live numbers for the cloud panel: store directory and learned road distances
+  const [roadCacheVersion, setRoadCacheVersion] = useState(0);
+  useEffect(() => roadCache.subscribe(() => setRoadCacheVersion(v => v + 1)), []);
+  const cloudDetails = useMemo(() => {
+    const rc = roadCache.stats();
+    const lastTotal = rc.lastHits + rc.lastFetched;
+    return [
+      { label: t('storeDirectoryCount'), value: String(storeDirectory.length) },
+      { label: t('roadCacheCount'), value: rc.cellsSaved.toLocaleString() },
+      ...(lastTotal > 0 ? [{ label: t('roadCacheLastHit'), value: `${Math.round((rc.lastHits / lastTotal) * 100)}%` }] : [])
+    ];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storeDirectory.length, roadCacheVersion, language]);
   const [currentPage, setCurrentPage] = useState<'home' | 'routing' | 'rota'>('routing');
   const [isTopCollapsed, setIsTopCollapsed] = useState(false);
   const [showFullAnalytics, setShowFullAnalytics] = useState(false);
@@ -1871,8 +1902,8 @@ export default function App() {
       }
 
       // Robust coordinate parsing & auto-correction
-      let lat = parseExcelNumber(mapping['lat'] ? row[mapping['lat']] : undefined, WAREHOUSE_LOCATION.lat);
-      let lng = parseExcelNumber(mapping['lng'] ? row[mapping['lng']] : undefined, WAREHOUSE_LOCATION.lng);
+      let lat = parseExcelNumber(mapping['lat'] ? row[mapping['lat']] : undefined, NaN);
+      let lng = parseExcelNumber(mapping['lng'] ? row[mapping['lng']] : undefined, NaN);
 
       // Auto-correct swapped coordinates if detected (e.g. lat > 45 and lng < 45 in Azerbaijan region)
       if (lat > 45 && lng < 43 && lng > 35) {
@@ -1880,8 +1911,12 @@ export default function App() {
         lat = lng;
         lng = temp;
       }
-      if (lat < 30 || lat > 50) lat = WAREHOUSE_LOCATION.lat;
-      if (lng < 40 || lng > 60) lng = WAREHOUSE_LOCATION.lng;
+      const coordsFromFile = Number.isFinite(lat) && Number.isFinite(lng) && lat >= 30 && lat <= 50 && lng >= 40 && lng <= 60;
+      if (!coordsFromFile) {
+        // filled from the store directory below, warehouse as the last resort
+        lat = WAREHOUSE_LOCATION.lat;
+        lng = WAREHOUSE_LOCATION.lng;
+      }
 
       const orderNumber = String(mapping['orderNumber'] && row[mapping['orderNumber']] !== undefined ? row[mapping['orderNumber']] : index + 1).trim();
       const customerName = String(mapping['customerName'] && row[mapping['customerName']] !== undefined ? row[mapping['customerName']] : 'Неизвестно').trim();
@@ -1914,9 +1949,33 @@ export default function App() {
         status: hasRoute ? 'in-route' : 'not-in-route',
         routeId: hasRoute ? routeStr : undefined,
         allowedTruckType: mapping['allowedTruckType'] && row[mapping['allowedTruckType']] ? String(row[mapping['allowedTruckType']]).trim() : undefined,
-        warehouseType: warehouseType || undefined
-      };
+        warehouseType: warehouseType || undefined,
+        __coordsFromFile: coordsFromFile
+      } as Order & { __coordsFromFile?: boolean };
     });
+
+    // Store directory: restore missing/invalid coordinates, then remember every store of this import
+    const lookupStore = buildStoreLookup(storeDirectory);
+    const trustedIds = new Set<string>();
+    let restoredCoords = 0;
+    let withoutCoords = 0;
+    for (const o of newOrders as (Order & { __coordsFromFile?: boolean })[]) {
+      if (o.__coordsFromFile) {
+        trustedIds.add(o.id);
+      } else {
+        const known = lookupStore(o.code, o.customerName);
+        if (known) {
+          o.lat = known.lat;
+          o.lng = known.lng;
+          restoredCoords++;
+        } else {
+          withoutCoords++;
+        }
+      }
+      delete o.__coordsFromFile;
+    }
+    const directoryUpdate = upsertStores(storeDirectory, newOrders, trustedIds);
+    setStoreDirectory(directoryUpdate.next);
 
     // Reconstruct ready-made routes from orders with route numbers
     const importedRouteGroups = new Map<string, Order[]>();
@@ -1984,11 +2043,17 @@ export default function App() {
     setRoutes(reconstructedRoutes);
     setExcelMapping({ show: false, data: [], headers: [], mapping: {} });
     setSelectedShippingDates([]);
-    setSaveNotification(reconstructedRoutes.length > 0
+    const directoryNote = [
+      directoryUpdate.added > 0 ? `в справочник добавлено магазинов: ${directoryUpdate.added}` : '',
+      directoryUpdate.updated > 0 ? `обновлено: ${directoryUpdate.updated}` : '',
+      restoredCoords > 0 ? `координаты из справочника: ${restoredCoords}` : '',
+      withoutCoords > 0 ? `без координат (поставлены на склад): ${withoutCoords}` : ''
+    ].filter(Boolean).join(', ');
+    setSaveNotification((reconstructedRoutes.length > 0
       ? `Импортировано ${newOrders.length} заказов и воссоздано ${reconstructedRoutes.length} готовых маршрутов!`
-      : `Успешно импортировано ${newOrders.length} заказов`
+      : `Успешно импортировано ${newOrders.length} заказов`) + (directoryNote ? ` (${directoryNote})` : '')
     );
-    setTimeout(() => setSaveNotification(null), 4000);
+    setTimeout(() => setSaveNotification(null), 6000);
 
     // Calculate background geometry & road navigation details for imported routes in batches
     if (reconstructedRoutes.length > 0) {
@@ -2894,7 +2959,7 @@ export default function App() {
     const isSmallScreen = typeof window !== 'undefined' && window.innerWidth < 768;
     const mobileContent = (
       <AndroidMobileLayout
-        cloudSlot={<CloudSyncButton cloud={cloud} variant="mobile" />}
+        cloudSlot={<CloudSyncButton cloud={cloud} variant="mobile" details={cloudDetails} />}
         barriers={barriers}
         orders={orders}
         filteredOrders={filteredOrders}
@@ -3126,7 +3191,7 @@ export default function App() {
               <span className={cn("absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full ring-1 ring-card", isAutosaving ? "bg-amber-500 animate-ping" : "bg-emerald-500")} />
             </div>
 
-            <CloudSyncButton cloud={cloud} />
+            <CloudSyncButton cloud={cloud} details={cloudDetails} />
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3 xl:gap-4 shrink min-w-0">

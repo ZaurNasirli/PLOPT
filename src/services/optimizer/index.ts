@@ -7,5 +7,7 @@ export * from './RouteBuilder';
 export * from './LocalSearch';
 export * from './RouteMerger';
 export * from './MultiStartOptimizer';
+export * from './RuinRecreate';
+export * from './RoadMatrix';
 export * from './OptimizationResult';
 export * from './Benchmark';

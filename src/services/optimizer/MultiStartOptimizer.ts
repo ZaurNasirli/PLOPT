@@ -1,8 +1,10 @@
 import { Order } from '../../types';
-import { RoutingLimits } from '../routingService';
-import { RoadMatrixLookup } from './DistanceMatrix';
-import { SmartVRPConfig } from './types';
+import type { RoutingLimits } from '../routingService';
+import { RoadMatrixLookup } from './RoadMatrix';
+import { SmartVRPConfig, getTimeBudgetMs } from './types';
 import { evaluateSolutionScore } from './ObjectiveFunction';
+import { runRuinAndRecreate } from './RuinRecreate';
+import { setSearchDeadline, clearSearchDeadline } from './searchControl';
 import { runFullLocalSearch, optimizeRoute2Opt } from './LocalSearch';
 import { optimizeRouteMerge, optimizeRouteSplit, eliminateUnderutilizedRoutes } from './RouteMerger';
 import {
@@ -130,10 +132,12 @@ function buildInitialSeedWithLocks(
 }
 
 /**
- * Multi-Start Hybrid VRP Optimizer Engine:
- * Generates distinct seed solutions, optimizes each through multi-operator local search,
- * applies Iterated Local Search (ILS) with Simulated Annealing acceptance,
- * and returns the best solution across all starts.
+ * Multi-Start Hybrid VRP Optimizer Engine (time-budgeted):
+ *   1. Seeds (~35% of the budget): several construction heuristics, each improved by
+ *      multi-operator local search and route merging.
+ *   2. Ruin & recreate (LNS) on the best seed until ~90% of the budget.
+ *   3. Final merge / under-utilised route elimination / local search polish.
+ * The budget depends on the mode and the number of stops (see getTimeBudgetMs).
  */
 export async function optimizeMultiStartVRP(
   orderIndices: number[],
@@ -150,109 +154,79 @@ export async function optimizeMultiStartVRP(
     return [orderIndices];
   }
 
-  const multiStarts = config.multiStartIterations || 3;
+  const start = Date.now();
+  const budget = getTimeBudgetMs(config, orderIndices.length);
+  const deadline = start + budget;
+  const seedDeadline = start + budget * 0.35;
+  const lnsDeadline = start + budget * 0.9;
+  const report = (msg: string) => {
+    if (onStepProgress) onStepProgress(15 + Math.floor(Math.min(1, (Date.now() - start) / budget) * 80), msg);
+  };
+
   let globalBestRoutes: number[][] = [];
   let globalBestScore = Infinity;
+  const consider = (routes: number[][]) => {
+    if (routes.length === 0) return;
+    const score = evaluateSolutionScore(routes, ordersMap, matrix, limits, config);
+    if (globalBestRoutes.length === 0 || score < globalBestScore) {
+      globalBestScore = score;
+      globalBestRoutes = routes;
+    }
+  };
 
-  const totalRuns = Math.max(1, multiStarts);
+  const seedBuilders: { name: string; build: (indices: number[]) => number[][] }[] = [
+    { name: 'Географический коридорный seed', build: idx => buildGeographicCorridorSeed(idx, ordersMap, matrix, limits, config) },
+    { name: 'Seed по крайним точкам (Farthest)', build: idx => buildFarthestPointSeed(idx, ordersMap, matrix, limits, config) },
+    { name: 'Жадный seed (Nearest Neighbor)', build: idx => buildNearestNeighborSeed(idx, ordersMap, matrix, limits, config) },
+    { name: 'Seed по плотности загрузки (Capacity-First)', build: idx => buildCapacityFirstSeed(idx, ordersMap, matrix, limits, config) }
+  ];
+  const multiStarts = Math.max(1, config.multiStartIterations || 3);
 
-  for (let sIdx = 0; sIdx < totalRuns; sIdx++) {
-    let seedName: string;
-    let initialSolution: number[][];
+  try {
+    // ---- Phase 1: seeds + local search ----
+    setSearchDeadline(seedDeadline);
+    for (let sIdx = 0; sIdx < multiStarts; sIdx++) {
+      if (sIdx >= 1 && Date.now() > seedDeadline) break;
+      const builder = seedBuilders[sIdx] || {
+        name: `Стохастический seed #${sIdx - 3}`,
+        build: (idx: number[]) => buildRandomizedSeed(idx, ordersMap, matrix, limits, config, (sIdx + 1) * 317 + 101)
+      };
+      report(`Multi-Start [${sIdx + 1}/${multiStarts}]: ${builder.name}...`);
+      await new Promise(r => setTimeout(r, 0));
 
-    if (sIdx === 0) {
-      seedName = 'Географический коридорный seed';
-      initialSolution = buildInitialSeedWithLocks(
-        orderIndices, ordersMap, matrix, limits, config,
-        (indices) => buildGeographicCorridorSeed(indices, ordersMap, matrix, limits, config)
-      );
-    } else if (sIdx === 1) {
-      seedName = 'Seed по крайним точкам (Farthest)';
-      initialSolution = buildInitialSeedWithLocks(
-        orderIndices, ordersMap, matrix, limits, config,
-        (indices) => buildFarthestPointSeed(indices, ordersMap, matrix, limits, config)
-      );
-    } else if (sIdx === 2) {
-      seedName = 'Жадный seed (Nearest Neighbor)';
-      initialSolution = buildInitialSeedWithLocks(
-        orderIndices, ordersMap, matrix, limits, config,
-        (indices) => buildNearestNeighborSeed(indices, ordersMap, matrix, limits, config)
-      );
-    } else if (sIdx === 3) {
-      seedName = 'Seed по плотности загрузки (Capacity-First)';
-      initialSolution = buildInitialSeedWithLocks(
-        orderIndices, ordersMap, matrix, limits, config,
-        (indices) => buildCapacityFirstSeed(indices, ordersMap, matrix, limits, config)
-      );
-    } else {
-      seedName = `Стохастический seed #${sIdx - 3}`;
-      initialSolution = buildInitialSeedWithLocks(
-        orderIndices, ordersMap, matrix, limits, config,
-        (indices) => buildRandomizedSeed(indices, ordersMap, matrix, limits, config, (sIdx + 1) * 317 + 101)
-      );
+      let solution = buildInitialSeedWithLocks(orderIndices, ordersMap, matrix, limits, config, builder.build);
+      solution = runFullLocalSearch(solution, ordersMap, matrix, limits, config);
+      solution = optimizeRouteMerge(solution, ordersMap, matrix, limits, config);
+      solution = eliminateUnderutilizedRoutes(solution, ordersMap, matrix, limits, config);
+      solution = enforceMustStayTogether(solution, ordersMap, matrix, limits, config);
+      consider(solution);
     }
 
-    if (onStepProgress) {
-      const p = 15 + Math.floor((sIdx / totalRuns) * 70);
-      onStepProgress(p, `Multi-Start [${sIdx + 1}/${totalRuns}]: ${seedName}...`);
-    }
-    await new Promise(r => setTimeout(r, 0));
-
-    // Step 1: Initial seed solution
-    let currentSolution = initialSolution;
-
-    // Step 2: Full multi-operator local search
-    currentSolution = runFullLocalSearch(currentSolution, ordersMap, matrix, limits, config);
-
-    // Step 3: Route Merge / Split / Underutilization Elimination
-    currentSolution = optimizeRouteMerge(currentSolution, ordersMap, matrix, limits, config);
-    currentSolution = eliminateUnderutilizedRoutes(currentSolution, ordersMap, matrix, limits, config);
-    if (config.mode === 'quality') {
-      currentSolution = optimizeRouteSplit(currentSolution, ordersMap, matrix, limits, config);
+    // ---- Phase 2: ruin & recreate ----
+    if (globalBestRoutes.length > 0 && Date.now() < lnsDeadline) {
+      report('LNS: разрушение и восстановление решения...');
+      await new Promise(r => setTimeout(r, 0));
+      setSearchDeadline(lnsDeadline);
+      const lns = runRuinAndRecreate(globalBestRoutes, ordersMap, matrix, limits, config, {
+        deadline: lnsDeadline,
+        seed: orderIndices.length * 7919 + 17,
+        onProgress: (_, msg) => report(msg)
+      });
+      consider(lns.solution);
     }
 
-    // Polish after mergers
-    currentSolution = enforceMustStayTogether(currentSolution, ordersMap, matrix, limits, config);
-    currentSolution = runFullLocalSearch(currentSolution, ordersMap, matrix, limits, config);
-    let currentScore = evaluateSolutionScore(currentSolution, ordersMap, matrix, limits, config);
-
-    // Step 4: Iterated Local Search (ILS) & Simulated Annealing escapes
-    if (config.ilsMaxPerturbations > 0) {
-      let ilsSolution = currentSolution;
-      let ilsScore = currentScore;
-      let temperature = 0.05; // Initial temperature for SA acceptance
-
-      for (let pIdx = 0; pIdx < config.ilsMaxPerturbations; pIdx++) {
-        // Apply perturbation with locked stops & routes protection
-        const perturbed = applyPerturbation(ilsSolution, (sIdx + 1) * 1000 + pIdx, ordersMap, limits);
-        // Local search from perturbed state
-        const restored = runFullLocalSearch(perturbed, ordersMap, matrix, limits, config);
-        const restoredScore = evaluateSolutionScore(restored, ordersMap, matrix, limits, config);
-
-        // Simulated Annealing / threshold acceptance criterion
-        const delta = restoredScore - ilsScore;
-        const accept = delta < 0 || (Number.isFinite(delta) && Math.exp(-delta / Math.max(0.001, temperature)) > 0.45);
-
-        if (accept && restored.length > 0) {
-          ilsSolution = restored;
-          ilsScore = restoredScore;
-        }
-
-        temperature *= 0.75; // Cool down
-
-        // Update if improved
-        if (ilsScore < currentScore) {
-          currentSolution = ilsSolution;
-          currentScore = ilsScore;
-        }
-      }
+    // ---- Phase 3: final polish ----
+    setSearchDeadline(deadline);
+    if (globalBestRoutes.length > 0) {
+      let polished = optimizeRouteMerge(globalBestRoutes, ordersMap, matrix, limits, config);
+      polished = eliminateUnderutilizedRoutes(polished, ordersMap, matrix, limits, config);
+      if (config.mode === 'quality') polished = optimizeRouteSplit(polished, ordersMap, matrix, limits, config);
+      polished = enforceMustStayTogether(polished, ordersMap, matrix, limits, config);
+      polished = runFullLocalSearch(polished, ordersMap, matrix, limits, config);
+      consider(polished);
     }
-
-    // Check against global best (always capture the first non-empty solution as fallback)
-    if (currentSolution.length > 0 && (globalBestRoutes.length === 0 || currentScore < globalBestScore)) {
-      globalBestScore = currentScore;
-      globalBestRoutes = currentSolution;
-    }
+  } finally {
+    clearSearchDeadline();
   }
 
   // Final safety fallback if all seeds somehow returned empty

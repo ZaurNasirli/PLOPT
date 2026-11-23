@@ -668,5 +668,8 @@ export const az = {
   barrierDefaultName: 'Maneə {n}',
   barrierZoneDefaultName: 'Zona {n}',
   barrierRouteDetourBadge: 'Maneə dolanması',
-  barrierRouteBlockedBadge: 'Maneədən keçir'
+  barrierRouteBlockedBadge: 'Maneədən keçir',
+  storeDirectoryCount: 'Kataloqdakı mağazalar',
+  roadCacheCount: 'Keşdə yol məsafələri',
+  roadCacheLastHit: 'Son hesablamada keşdən'
 };

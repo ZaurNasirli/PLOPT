@@ -189,3 +189,19 @@ export interface RoadBarrier {
   isActive: boolean;
   createdAt: string;
 }
+
+/** Store directory entry: every store ever imported from Excel (kept in the cloud database). */
+export interface StoreRecord {
+  /** 'c:<code>' when the store has a code, otherwise 'n:<normalized name>' */
+  key: string;
+  code: string;
+  name: string;
+  lat: number;
+  lng: number;
+  region?: string;
+  warehouseType?: string;
+  firstSeen: string;
+  lastSeen: string;
+  /** how many imports contained this store */
+  imports: number;
+}

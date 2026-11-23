@@ -1,6 +1,6 @@
 import { Order, Route } from '../../types';
-import { RoutingLimits } from '../routingService';
-import { RoadMatrixLookup } from './DistanceMatrix';
+import type { RoutingLimits } from '../routingService';
+import { RoadMatrixLookup } from './RoadMatrix';
 import { SmartVRPConfig, SolutionMetrics, RouteMetrics, RouteExplanation } from './types';
 import { getRouteCapacities, evaluateRouteSchedule, findBestTruck } from './ConstraintValidator';
 import { 

@@ -1,7 +1,7 @@
 import { Order } from '../../types';
-import { RoutingLimits } from '../routingService';
-import { calculateDistance } from '../routingService';
-import { RoadMatrixLookup } from './DistanceMatrix';
+import type { RoutingLimits } from '../routingService';
+import { calculateDistance } from '../geo';
+import { RoadMatrixLookup } from './RoadMatrix';
 import { SmartVRPConfig } from './types';
 import { checkHardLimits, getRouteCapacities, parseTimeSlot, evaluateRouteSchedule } from './ConstraintValidator';
 import { buildCapacityAwareClusters } from './Clustering';
@@ -221,6 +221,8 @@ export function evaluateInsertionCost(
 
 /**
  * Finds best insertion position for a candidate node in an existing route.
+ * Same cost as evaluateInsertionCost, but everything that does not depend on the position
+ * (limits check, capacity, direction, group bonus) is computed once instead of per position.
  */
 export function findBestInsertion(
   route: number[],
@@ -230,24 +232,105 @@ export function findBestInsertion(
   limits: RoutingLimits,
   config: SmartVRPConfig
 ): BestInsertionResult | null {
+  const candidateOrder = ordersMap[candidateNode - 1];
+  if (!candidateOrder) return null;
+  const routeOrders = route.map(idx => ordersMap[idx - 1]).filter(Boolean);
+  const newOrders = [...routeOrders, candidateOrder];
+  if (!checkHardLimits(newOrders, limits)) return null;
+
+  // Position-independent parts
+  const { maxW, maxV } = getRouteCapacities(newOrders, limits);
+  const totalW = newOrders.reduce((s, o) => s + o.weight, 0);
+  const totalV = newOrders.reduce((s, o) => s + o.volume, 0);
+  const peakUtil = Math.max(maxW > 0 ? totalW / maxW : 0.8, maxV > 0 ? totalV / maxV : 0.8);
+  const underloadPenalty = peakUtil < 0.70 ? (0.70 - peakUtil) * 8.0 : 0;
+
+  let dirPenalty = 0;
+  if (route.length > 0) {
+    const candidateAngle = getDepotAngle(candidateOrder.lat, candidateOrder.lng);
+    const meanAngle = routeOrders.reduce((s, o) => s + getDepotAngle(o.lat, o.lng), 0) / routeOrders.length;
+    const angleDiff = getAngleDiff(candidateAngle, meanAngle);
+    if (angleDiff > Math.PI / 4) dirPenalty = Math.pow(angleDiff - Math.PI / 4, 2) * 20.0;
+  }
+
+  let groupBonus = 0;
+  if (limits.mustStayTogether && limits.mustStayTogether.length > 0) {
+    for (const grp of limits.mustStayTogether) {
+      if (grp.includes(candidateOrder.id) && routeOrders.some(o => grp.includes(o.id))) {
+        groupBonus = -15.0;
+        break;
+      }
+    }
+  }
+
+  const fixedCost =
+    config.capacityUtilizationWeight * underloadPenalty +
+    config.geographicCompactnessWeight * dirPenalty +
+    groupBonus;
+  const twCand = candidateOrder.timeSlot ? parseTimeSlot(candidateOrder.timeSlot) : null;
+  const hardTw = limits.timeWindowMode === 'hard';
+
   let bestIndex = -1;
   let minCost = Infinity;
 
-  for (let p = 0; p <= route.length; p++) {
-    const cost = evaluateInsertionCost(route, p, candidateNode, ordersMap, matrix, limits, config);
-    if (cost < minCost) {
-      minCost = cost;
-      bestIndex = p;
+  for (let pos = 0; pos <= route.length; pos++) {
+    const prevNode = pos === 0 ? 0 : route[pos - 1];
+    const nextNode = pos === route.length ? 0 : route[pos];
+
+    const deltaDist = matrix.getDistance(prevNode, candidateNode) + matrix.getDistance(candidateNode, nextNode) - matrix.getDistance(prevNode, nextNode);
+    const deltaDur = matrix.getDuration(prevNode, candidateNode) + matrix.getDuration(candidateNode, nextNode) - matrix.getDuration(prevNode, nextNode);
+
+    let regionPenalty = 0;
+    let twPenalty = 0;
+    if (prevNode > 0) {
+      const prevOrder = ordersMap[prevNode - 1];
+      if (prevOrder && prevOrder.region !== candidateOrder.region) {
+        const d = calculateDistance(prevOrder.lat, prevOrder.lng, candidateOrder.lat, candidateOrder.lng);
+        regionPenalty += d > 3.5 ? 4.0 : 0.5;
+      }
+      if (twCand && prevOrder && prevOrder.timeSlot) {
+        const twPrev = parseTimeSlot(prevOrder.timeSlot);
+        if (twPrev.endMinutes < twCand.startMinutes - 180) twPenalty += 2.0;
+        else if (twCand.endMinutes < twPrev.startMinutes) twPenalty += 5.0;
+      }
     }
+    if (nextNode > 0) {
+      const nextOrder = ordersMap[nextNode - 1];
+      if (nextOrder && nextOrder.region !== candidateOrder.region) {
+        const d = calculateDistance(candidateOrder.lat, candidateOrder.lng, nextOrder.lat, nextOrder.lng);
+        regionPenalty += d > 3.5 ? 4.0 : 0.5;
+      }
+    }
+
+    const cost =
+      config.distanceWeight * deltaDist +
+      config.durationWeight * (deltaDur * 0.4) +
+      config.regionConsistencyWeight * regionPenalty +
+      config.timeWindowWeight * twPenalty +
+      fixedCost;
+
+    if (cost >= minCost) continue;
+
+    if (hardTw) {
+      const candidateRoute = [...route.slice(0, pos), candidateNode, ...route.slice(pos)];
+      const sched = evaluateRouteSchedule(
+        candidateRoute, matrix, ordersMap,
+        limits.serviceTimeMinutes ?? config.defaultServiceTimeMinutes ?? 10,
+        (config.depotStartHour ?? 8) * 60
+      );
+      if (sched.violationsCount > 0) continue;
+    }
+
+    minCost = cost;
+    bestIndex = pos;
   }
 
   if (bestIndex === -1 || minCost === Infinity) return null;
 
-  const newRoute = [...route.slice(0, bestIndex), candidateNode, ...route.slice(bestIndex)];
   return {
     bestIndex,
     insertionCost: minCost,
-    newRoute
+    newRoute: [...route.slice(0, bestIndex), candidateNode, ...route.slice(bestIndex)]
   };
 }
 

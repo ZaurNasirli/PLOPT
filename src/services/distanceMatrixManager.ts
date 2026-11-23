@@ -1,22 +1,17 @@
 // Smart Distance Matrix Manager
-// Features: Coordinate-keyed caching, Incremental calculations, Safe chunking,
-// Resilient OSRM fallback, Explicit road vs straight-line separation, and Cache clearing.
+//
+// - Real road values come from the persistent road cache (IndexedDB + Firestore) first; only
+//   missing pairs are requested from OSRM, and everything learned is stored back.
+// - Exact values (metres / seconds precision) — no 0.1 km / whole-minute rounding, which made
+//   stops 50–300 m apart indistinguishable in dense city areas.
+// - Full real-road coverage up to FULL_COVERAGE_MAX_POINTS points using 50×50 OSRM table blocks;
+//   bigger instances use the staged strategy (depot star, corridor clusters, nearest neighbours).
+// - Straight-line estimates are used only when OSRM is unreachable, kept in memory with a TTL.
 
-import { routingProvider } from './routingProvider';
 import { getActiveBarriers } from './barriers/barrierStore';
 import { applyBarriersToMatrix, BarrierMatrixInfo } from './barriers/barrierMatrix';
-
-const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
-  const R = 6371;
-  const dLat = (lat2 - lat1) * (Math.PI / 180);
-  const dLon = (lon2 - lon1) * (Math.PI / 180);
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) *
-    Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-};
+import { roadCache, coordKey } from './cloud/roadCache';
+import { calculateDistance } from './geo';
 
 export interface MatrixCell {
   distanceKm: number;
@@ -59,21 +54,30 @@ export interface MatrixCacheStats {
   estimatedMemoryKb: number;
 }
 
+type Pt = { lat: number; lng: number };
+
+const OSRM_MAX_COORDS = 100;
+const BLOCK = 50;
+/** Up to this many points the whole matrix is fetched from OSRM (block requests). */
+const FULL_COVERAGE_MAX_POINTS = 300;
+const MAX_PARALLEL_REQUESTS = 2;
+
+const round3 = (v: number) => Math.round(v * 1000) / 1000;
+const round2 = (v: number) => Math.round(v * 100) / 100;
+
 class DistanceMatrixManager {
   private static instance: DistanceMatrixManager;
 
-  // In-memory pairwise cache
-  private pairCache = new Map<string, MatrixCell>();
-  private readonly STORAGE_KEY = 'smart_dist_matrix_cache_v3';
-  private readonly MAX_CACHE_ENTRIES = 25000;
-  // Fallback cache TTL: 10 minutes so subsequent optimizations re-attempt OSRM queries
+  // In-memory straight-line estimates (used only when OSRM fails), re-tried after the TTL
+  private fallbackCache = new Map<string, MatrixCell>();
   private readonly FALLBACK_TTL_MS = 10 * 60 * 1000;
+  private readonly LEGACY_STORAGE_KEY = 'smart_dist_matrix_cache_v3';
 
   private primaryTableUrl = 'https://router.project-osrm.org/table/v1/driving/';
   private backupTableUrl = 'https://routing.openstreetmap.de/routed-car/table/v1/driving/';
 
   private constructor() {
-    this.loadFromStorage();
+    this.migrateLegacyStorage();
   }
 
   public static getInstance(): DistanceMatrixManager {
@@ -83,528 +87,229 @@ class DistanceMatrixManager {
     return DistanceMatrixManager.instance;
   }
 
-  private coordKey(p: { lat: number; lng: number }): string {
-    return `${p.lat.toFixed(5)},${p.lng.toFixed(5)}`;
-  }
-
-  private pairKey(p1: { lat: number; lng: number }, p2: { lat: number; lng: number }): string {
-    return `${this.coordKey(p1)}->${this.coordKey(p2)}`;
-  }
-
-  private loadFromStorage() {
+  /** Moves the old localStorage cache (800 pairs max) into the persistent road cache once. */
+  private migrateLegacyStorage() {
     try {
-      const stored = localStorage.getItem(this.STORAGE_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed)) {
-          parsed.forEach(([k, v]: [string, MatrixCell]) => {
-            // ONLY restore REAL ROAD pairs from permanent storage
-            if (v && v.isRealRoad) {
-              this.pairCache.set(k, v);
-            }
-          });
+      const stored = typeof localStorage !== 'undefined' ? localStorage.getItem(this.LEGACY_STORAGE_KEY) : null;
+      if (!stored) return;
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed)) {
+        for (const [key, cell] of parsed as [string, MatrixCell][]) {
+          const [from, to] = String(key).split('->');
+          if (from && to && cell?.isRealRoad) roadCache.put(from, to, cell.distanceKm, cell.durationMinutes);
         }
       }
-    } catch {
-      // Storage unavailable or quota exceeded; fallback to in-memory only
-    }
-  }
-
-  private persistDebounced = (() => {
-    let timer: any = null;
-    return () => {
-      clearTimeout(timer);
-      timer = setTimeout(() => {
-        try {
-          // Store only verified real road entries in localStorage
-          const realEntries: [string, MatrixCell][] = [];
-          this.pairCache.forEach((cell, key) => {
-            if (cell.isRealRoad && realEntries.length < 800) {
-              realEntries.push([key, cell]);
-            }
-          });
-          localStorage.setItem(this.STORAGE_KEY, JSON.stringify(realEntries));
-        } catch {
-          // Quota exceeded - ignore or clear
-        }
-      }, 3000);
-    };
-  })();
-
-  public clearCache(): void {
-    this.pairCache.clear();
-    try {
-      localStorage.removeItem(this.STORAGE_KEY);
+      localStorage.removeItem(this.LEGACY_STORAGE_KEY);
     } catch {
       // ignore
     }
   }
 
+  public clearCache(): void {
+    this.fallbackCache.clear();
+    void roadCache.clearLocal();
+  }
+
   public clearFallbackCache(): void {
-    const keysToDelete: string[] = [];
-    this.pairCache.forEach((cell, key) => {
-      if (cell.isFallback) keysToDelete.push(key);
-    });
-    keysToDelete.forEach(k => this.pairCache.delete(k));
+    this.fallbackCache.clear();
   }
 
   public getCacheStats(): MatrixCacheStats {
-    let roadPairs = 0;
-    let fallbackPairs = 0;
     const now = Date.now();
-    this.pairCache.forEach(cell => {
-      if (cell.isRealRoad) {
-        roadPairs++;
-      } else if (now - cell.timestamp < this.FALLBACK_TTL_MS) {
-        fallbackPairs++;
-      }
-    });
-
-    const estimatedMemoryKb = Math.round((this.pairCache.size * 90) / 1024);
-
+    let fallbackPairs = 0;
+    this.fallbackCache.forEach(c => { if (now - c.timestamp < this.FALLBACK_TTL_MS) fallbackPairs++; });
+    const road = roadCache.stats();
     return {
-      totalPairs: roadPairs + fallbackPairs,
-      roadPairs,
+      totalPairs: road.cellsInMemory + fallbackPairs,
+      roadPairs: road.cellsInMemory,
       fallbackPairs,
-      estimatedMemoryKb
+      estimatedMemoryKb: Math.round(((road.cellsInMemory + fallbackPairs) * 90) / 1024)
     };
   }
 
   /**
-   * Helper to perform OSRM /table query with retries and fallback endpoints.
+   * OSRM /table query (coordinates <= 100) with the backup endpoint as fallback.
+   * Returns metres / seconds.
    */
   private async fetchOsrmTable(
-    points: { lat: number; lng: number }[],
+    points: Pt[],
     sources?: number[],
-    destinations?: number[],
-    retries: number = 1
-  ): Promise<{ distances: number[][]; durations: number[][] } | null> {
+    destinations?: number[]
+  ): Promise<{ distances: (number | null)[][]; durations: (number | null)[][] } | null> {
     if (points.length === 0) return null;
     const coordsStr = points.map(p => `${p.lng.toFixed(6)},${p.lat.toFixed(6)}`).join(';');
     const params = new URLSearchParams();
     params.set('annotations', 'distance,duration');
-    if (sources && sources.length > 0) {
-      params.set('sources', sources.join(';'));
-    }
-    if (destinations && destinations.length > 0) {
-      params.set('destinations', destinations.join(';'));
-    }
+    if (sources && sources.length > 0) params.set('sources', sources.join(';'));
+    if (destinations && destinations.length > 0) params.set('destinations', destinations.join(';'));
 
-    const queryUrl = (base: string) => `${base}${coordsStr}?${params.toString()}`;
-    const endpoints = [this.primaryTableUrl, this.backupTableUrl];
-
-    for (let attempt = 0; attempt < retries; attempt++) {
-      for (const base of endpoints) {
-        try {
-          const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 3200);
-          const res = await fetch(queryUrl(base), { signal: controller.signal });
-          clearTimeout(timeout);
-
-          if (res.ok) {
-            const data = await res.json();
-            if (data.code === 'Ok' && Array.isArray(data.distances)) {
-              return {
-                distances: data.distances,
-                durations: data.durations || data.distances.map((row: number[]) => row.map(d => (d / 1000) * 1.5 * 60))
-              };
-            }
+    for (const base of [this.primaryTableUrl, this.backupTableUrl]) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 9000);
+      try {
+        const res = await fetch(`${base}${coordsStr}?${params.toString()}`, { signal: controller.signal });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.code === 'Ok' && Array.isArray(data.distances) && Array.isArray(data.durations)) {
+            return { distances: data.distances, durations: data.durations };
           }
-        } catch {
-          // Endpoint or timeout failed, proceed to next
         }
+      } catch {
+        // try the next endpoint
+      } finally {
+        clearTimeout(timeout);
       }
     }
-
     return null;
   }
 
+  /** Runs async tasks with limited parallelism (be polite to the public OSRM server). */
+  private async runLimited(tasks: (() => Promise<void>)[]): Promise<void> {
+    let next = 0;
+    const worker = async () => {
+      while (next < tasks.length) {
+        const task = tasks[next++];
+        await task();
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(MAX_PARALLEL_REQUESTS, tasks.length) }, worker));
+  }
+
   /**
-   * Primary Smart Matrix Calculator
-   * Checks cache for all N*N pairs. If missing, chunk-fetches from OSRM with retries,
-   * falls back only cell-by-cell, and computes exact coverage statistics.
+   * Primary Smart Matrix Calculator.
+   * Fills from the road cache, fetches only missing pairs from OSRM, falls back cell by cell.
    */
-  public async getDistanceMatrix(points: { lat: number; lng: number }[]): Promise<DistanceMatrixResult> {
+  public async getDistanceMatrix(points: Pt[]): Promise<DistanceMatrixResult> {
     const n = points.length;
     if (n === 0) {
       return {
-        distances: [],
-        durations: [],
-        isRealRoad: true,
-        hasAnyFallback: false,
-        cachedCellsCount: 0,
-        fetchedCellsCount: 0,
-        totalCellsCount: 0,
-        totalPairs: 0,
-        roadPairs: 0,
-        fallbackPairs: 0,
-        coveragePercent: 100,
+        distances: [], durations: [], isRealRoad: true, hasAnyFallback: false,
+        cachedCellsCount: 0, fetchedCellsCount: 0, totalCellsCount: 0,
+        totalPairs: 0, roadPairs: 0, fallbackPairs: 0, coveragePercent: 100,
         routingProvider: 'OSRM Table API'
       };
     }
 
-    // Initialize 2D matrices
-    const distances: number[][] = Array.from({ length: n }, () => new Array(n).fill(0));
-    const durations: number[][] = Array.from({ length: n }, () => new Array(n).fill(0));
+    const keys = points.map(coordKey);
+    await roadCache.ensureRows(keys);
+
+    // NaN = unknown (0 is a valid distance: several orders of the same store share coordinates)
+    const distances: number[][] = Array.from({ length: n }, () => new Array(n).fill(NaN));
+    const durations: number[][] = Array.from({ length: n }, () => new Array(n).fill(NaN));
+    const isReal: boolean[][] = Array.from({ length: n }, () => new Array(n).fill(false));
 
     let cachedCellsCount = 0;
     let fetchedCellsCount = 0;
     const now = Date.now();
 
-    // Check which (i, j) pairs are cached (real road or non-expired fallback)
     for (let i = 0; i < n; i++) {
       for (let j = 0; j < n; j++) {
-        if (i === j) {
-          distances[i][j] = 0;
-          durations[i][j] = 0;
+        if (i === j || keys[i] === keys[j]) {
+          distances[i][j] = 0; durations[i][j] = 0; isReal[i][j] = true;
           continue;
         }
-
-        const key = this.pairKey(points[i], points[j]);
-        const cached = this.pairCache.get(key);
-
-        if (cached) {
-          if (cached.isRealRoad) {
-            distances[i][j] = cached.distanceKm;
-            durations[i][j] = cached.durationMinutes;
-            cachedCellsCount++;
-          } else if (now - cached.timestamp < this.FALLBACK_TTL_MS) {
-            // Still in fallback TTL window
-            distances[i][j] = cached.distanceKm;
-            durations[i][j] = cached.durationMinutes;
-            cachedCellsCount++;
-          }
+        const cell = roadCache.get(keys[i], keys[j]);
+        if (cell) {
+          distances[i][j] = cell.km; durations[i][j] = cell.min; isReal[i][j] = true;
+          cachedCellsCount++;
+          continue;
+        }
+        const fb = this.fallbackCache.get(`${keys[i]}->${keys[j]}`);
+        if (fb && now - fb.timestamp < this.FALLBACK_TTL_MS) {
+          distances[i][j] = fb.distanceKm; durations[i][j] = fb.durationMinutes;
+          cachedCellsCount++;
         }
       }
     }
 
-    // Helper to store real road cell
-    const storeRoadCell = (i: number, j: number, km: number, mins: number) => {
-      distances[i][j] = km;
-      durations[i][j] = mins;
-      this.pairCache.set(this.pairKey(points[i], points[j]), {
-        distanceKm: km,
-        durationMinutes: mins,
-        isRealRoad: true,
-        isFallback: false,
-        isEstimate: false,
-        timestamp: Date.now()
+    const missing = (i: number, j: number) => i !== j && Number.isNaN(distances[i][j]);
+
+    const storeRoad = (i: number, j: number, meters: number | null | undefined, seconds: number | null | undefined) => {
+      if (typeof meters !== 'number' || typeof seconds !== 'number' || !missing(i, j)) return;
+      const km = round3(meters / 1000);
+      const min = round2(seconds / 60);
+      distances[i][j] = km; durations[i][j] = min; isReal[i][j] = true;
+      roadCache.put(keys[i], keys[j], km, min);
+      fetchedCellsCount++;
+    };
+
+    const storeFallback = (i: number, j: number) => {
+      const straightKm = calculateDistance(points[i].lat, points[i].lng, points[j].lat, points[j].lng);
+      const km = round3(straightKm * 1.35);
+      const min = round2(Math.max(0.5, (km / 38) * 60));
+      distances[i][j] = km; durations[i][j] = min;
+      this.fallbackCache.set(`${keys[i]}->${keys[j]}`, {
+        distanceKm: km, durationMinutes: min, isRealRoad: false, isFallback: true, isEstimate: true, timestamp: Date.now()
       });
       fetchedCellsCount++;
     };
 
-    // Helper to store calibrated fallback cell
-    const storeFallbackCell = (i: number, j: number) => {
-      const straightKm = Math.round(calculateDistance(points[i].lat, points[i].lng, points[j].lat, points[j].lng) * 10) / 10;
-      const roadEstKm = Math.round(straightKm * 1.35 * 10) / 10;
-      const roadEstMins = Math.max(1, Math.round((roadEstKm / 38) * 60));
-
-      distances[i][j] = roadEstKm;
-      durations[i][j] = roadEstMins;
-
-      // In-memory only with TTL so future calls re-attempt real OSRM
-      this.pairCache.set(this.pairKey(points[i], points[j]), {
-        distanceKm: roadEstKm,
-        durationMinutes: roadEstMins,
-        isRealRoad: false,
-        isFallback: true,
-        isEstimate: true,
-        timestamp: Date.now()
-      });
-      fetchedCellsCount++;
+    /** Fetch sources × destinations (global indices) in one OSRM request (|S ∪ D| <= 100). */
+    const fetchBlock = async (src: number[], dst: number[]): Promise<boolean> => {
+      const union = Array.from(new Set([...src, ...dst]));
+      const local = new Map(union.map((g, li) => [g, li]));
+      const table = await this.fetchOsrmTable(
+        union.map(g => points[g]),
+        src.map(g => local.get(g)!),
+        dst.map(g => local.get(g)!)
+      );
+      if (!table) return false;
+      src.forEach((gi, si) => dst.forEach((gj, dj) => storeRoad(gi, gj, table.distances[si]?.[dj], table.durations[si]?.[dj])));
+      return true;
     };
 
-    // --- EXECUTE QUERIES ---
-    const MAX_SMALL_INSTANCE = 65; // Complete N x N in a single URL (OSRM public table limit is 100)
+    const countMissing = () => {
+      let c = 0;
+      for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) if (missing(i, j)) c++;
+      return c;
+    };
 
-    if (n <= MAX_SMALL_INSTANCE) {
-      // Small/medium instance: fetch complete N x N matrix in one call
-      const missingCount = distances.flat().filter((d, idx) => {
-        const row = Math.floor(idx / n);
-        const col = idx % n;
-        return row !== col && d === 0;
-      }).length;
-
-      if (missingCount > 0) {
-        const tableData = await this.fetchOsrmTable(points);
-        if (tableData && tableData.distances) {
-          for (let i = 0; i < n; i++) {
-            for (let j = 0; j < n; j++) {
-              if (i === j) continue;
-              if (distances[i][j] > 0) continue;
-
-              const distMeters = tableData.distances[i]?.[j];
-              const durSec = tableData.durations?.[i]?.[j];
-
-              if (typeof distMeters === 'number' && distMeters !== null) {
-                const km = Math.round((distMeters / 1000) * 10) / 10;
-                const mins = Math.max(1, Math.round((durSec || (km * 1.5 * 60)) / 60));
-                storeRoadCell(i, j, km, mins);
-              } else {
-                storeFallbackCell(i, j);
-              }
-            }
-          }
-        } else {
-          // OSRM failed, mark fallback
-          for (let i = 0; i < n; i++) {
-            for (let j = 0; j < n; j++) {
-              if (i !== j && distances[i][j] === 0) {
-                storeFallbackCell(i, j);
-              }
-            }
+    if (countMissing() > 0) {
+      if (n <= OSRM_MAX_COORDS) {
+        // One request for the whole matrix
+        const all = points.map((_, i) => i);
+        await fetchBlock(all, all);
+      } else if (n <= FULL_COVERAGE_MAX_POINTS) {
+        // 50 × 50 blocks: every pair gets a real road value
+        const blocks: number[][] = [];
+        for (let s = 0; s < n; s += BLOCK) blocks.push(points.map((_, i) => i).slice(s, s + BLOCK));
+        let failures = 0;
+        const tasks: (() => Promise<void>)[] = [];
+        for (const a of blocks) {
+          for (const b of blocks) {
+            tasks.push(async () => {
+              if (failures >= 3) return; // OSRM unreachable: stop hammering it
+              const needed = a.some(i => b.some(j => missing(i, j)));
+              if (!needed) return;
+              const ok = await fetchBlock(a, b);
+              if (!ok) failures++;
+            });
           }
         }
-      }
-    } else {
-      // Large instance (66+ stores):
-      // Circuit breaker if OSRM is unreachable or rate-limiting so we don't hang for minutes
-      let osrmFailedCount = 0;
-      const isOsrmCircuitOpen = () => osrmFailedCount >= 2;
-
-      // Stage A: DEPOT STAR GRAPH (0 -> all points, and all points -> 0)
-      const nonDepotIndices = Array.from({ length: n - 1 }, (_, idx) => idx + 1);
-      const BATCH_DEST_SIZE = 50;
-
-      for (let s = 0; s < nonDepotIndices.length; s += BATCH_DEST_SIZE) {
-        if (isOsrmCircuitOpen()) break;
-        const batch = nonDepotIndices.slice(s, s + BATCH_DEST_SIZE);
-        const needsOutbound = batch.some(j => distances[0][j] === 0);
-        const needsInbound = batch.some(i => distances[i][0] === 0);
-
-        if (needsOutbound || needsInbound) {
-          const subPts = [points[0], ...batch.map(idx => points[idx])];
-          const subTable = await this.fetchOsrmTable(subPts);
-          if (subTable && subTable.distances) {
-            for (let bIdx = 0; bIdx < batch.length; bIdx++) {
-              const globalIdx = batch[bIdx];
-              const subIdx = bIdx + 1;
-
-              // Depot -> Point
-              if (distances[0][globalIdx] === 0) {
-                const dM = subTable.distances[0]?.[subIdx];
-                const dS = subTable.durations?.[0]?.[subIdx];
-                if (typeof dM === 'number' && dM !== null) {
-                  const km = Math.round((dM / 1000) * 10) / 10;
-                  const mins = Math.max(1, Math.round((dS || (km * 1.5 * 60)) / 60));
-                  storeRoadCell(0, globalIdx, km, mins);
-                }
-              }
-              // Point -> Depot
-              if (distances[globalIdx][0] === 0) {
-                const dM = subTable.distances[subIdx]?.[0];
-                const dS = subTable.durations?.[subIdx]?.[0];
-                if (typeof dM === 'number' && dM !== null) {
-                  const km = Math.round((dM / 1000) * 10) / 10;
-                  const mins = Math.max(1, Math.round((dS || (km * 1.5 * 60)) / 60));
-                  storeRoadCell(globalIdx, 0, km, mins);
-                }
-              }
-            }
-          } else {
-            osrmFailedCount++;
-          }
-        }
-      }
-
-      // Stage B: SPATIAL CORRIDOR CLUSTERS (dense real road within each geographical cluster)
-      const sortedByAngle = [...nonDepotIndices].sort((a, b) => {
-        const angA = Math.atan2(points[a].lat - points[0].lat, points[a].lng - points[0].lng);
-        const angB = Math.atan2(points[b].lat - points[0].lat, points[b].lng - points[0].lng);
-        return angA - angB;
-      });
-
-      const CLUSTER_SIZE = 28;
-      const clusters: number[][] = [];
-      for (let i = 0; i < sortedByAngle.length; i += CLUSTER_SIZE) {
-        clusters.push(sortedByAngle.slice(i, i + CLUSTER_SIZE));
-      }
-
-      for (const cluster of clusters) {
-        if (isOsrmCircuitOpen()) break;
-        let hasMissing = false;
-        for (const i of cluster) {
-          for (const j of cluster) {
-            if (i !== j && distances[i][j] === 0) {
-              hasMissing = true;
-              break;
-            }
-          }
-          if (hasMissing) break;
-        }
-
-        if (hasMissing) {
-          const subPts = cluster.map(idx => points[idx]);
-          const subTable = await this.fetchOsrmTable(subPts);
-          if (subTable && subTable.distances) {
-            for (let a = 0; a < cluster.length; a++) {
-              for (let b = 0; b < cluster.length; b++) {
-                if (a === b) continue;
-                const realI = cluster[a];
-                const realJ = cluster[b];
-                if (distances[realI][realJ] > 0) continue;
-
-                const distM = subTable.distances[a]?.[b];
-                const durS = subTable.durations?.[a]?.[b];
-                if (typeof distM === 'number' && distM !== null) {
-                  const km = Math.round((distM / 1000) * 10) / 10;
-                  const mins = Math.max(1, Math.round((durS || (km * 1.5 * 60)) / 60));
-                  storeRoadCell(realI, realJ, km, mins);
-                }
-              }
-            }
-          } else {
-            osrmFailedCount++;
-          }
-        }
-      }
-
-      // Stage C: ADJACENT CLUSTER BRIDGES
-      for (let c = 0; c < clusters.length; c++) {
-        if (isOsrmCircuitOpen()) break;
-        const nextC = (c + 1) % clusters.length;
-        const halfA = clusters[c].slice(-8);
-        const halfB = clusters[nextC].slice(0, 8);
-        const bridge = [...halfA, ...halfB];
-
-        let hasMissingBridge = false;
-        for (const i of halfA) {
-          for (const j of halfB) {
-            if (distances[i][j] === 0 || distances[j][i] === 0) {
-              hasMissingBridge = true;
-              break;
-            }
-          }
-          if (hasMissingBridge) break;
-        }
-
-        if (hasMissingBridge) {
-          const subPts = bridge.map(idx => points[idx]);
-          const subTable = await this.fetchOsrmTable(subPts);
-          if (subTable && subTable.distances) {
-            for (let a = 0; a < bridge.length; a++) {
-              for (let b = 0; b < bridge.length; b++) {
-                if (a === b) continue;
-                const realI = bridge[a];
-                const realJ = bridge[b];
-                if (distances[realI][realJ] > 0) continue;
-
-                const distM = subTable.distances[a]?.[b];
-                const durS = subTable.durations?.[a]?.[b];
-                if (typeof distM === 'number' && distM !== null) {
-                  const km = Math.round((distM / 1000) * 10) / 10;
-                  const mins = Math.max(1, Math.round((durS || (km * 1.5 * 60)) / 60));
-                  storeRoadCell(realI, realJ, km, mins);
-                }
-              }
-            }
-          } else {
-            osrmFailedCount++;
-          }
-        }
-      }
-
-      // Stage D: K-NEAREST CANDIDATE GRAPH
-      const missingNeighborQueries: { source: number; destinations: number[] }[] = [];
-      if (!isOsrmCircuitOpen()) {
-        for (let i = 1; i < n; i++) {
-          const nearest = nonDepotIndices
-            .filter(j => j !== i)
-            .map(j => ({ j, dist: calculateDistance(points[i].lat, points[i].lng, points[j].lat, points[j].lng) }))
-            .sort((a, b) => a.dist - b.dist)
-            .slice(0, 8)
-            .map(item => item.j);
-
-          const unqueriedDests = nearest.filter(j => distances[i][j] === 0);
-          if (unqueriedDests.length > 0) {
-            missingNeighborQueries.push({ source: i, destinations: unqueriedDests });
-          }
-        }
-      }
-
-      // Batch query nearest neighbors in blocks
-      for (let q = 0; q < Math.min(25, missingNeighborQueries.length); q += 5) {
-        const batch = missingNeighborQueries.slice(q, q + 5);
-        const sourceNodes = Array.from(new Set(batch.map(b => b.source)));
-        const destNodes = Array.from(new Set(batch.flatMap(b => b.destinations)));
-        const combined = Array.from(new Set([...sourceNodes, ...destNodes]));
-
-        if (combined.length <= 40) {
-          const subPts = combined.map(idx => points[idx]);
-          const subSources = sourceNodes.map(s => combined.indexOf(s));
-          const subDests = destNodes.map(d => combined.indexOf(d));
-
-          const subTable = await this.fetchOsrmTable(subPts, subSources, subDests);
-          if (subTable && subTable.distances) {
-            for (let sIdx = 0; sIdx < sourceNodes.length; sIdx++) {
-              for (let dIdx = 0; dIdx < destNodes.length; dIdx++) {
-                const realI = sourceNodes[sIdx];
-                const realJ = destNodes[dIdx];
-                if (realI === realJ || distances[realI][realJ] > 0) continue;
-
-                const distM = subTable.distances[sIdx]?.[dIdx];
-                const durS = subTable.durations?.[sIdx]?.[dIdx];
-                if (typeof distM === 'number' && distM !== null) {
-                  const km = Math.round((distM / 1000) * 10) / 10;
-                  const mins = Math.max(1, Math.round((durS || (km * 1.5 * 60)) / 60));
-                  storeRoadCell(realI, realJ, km, mins);
-                }
-              }
-            }
-          }
-        }
-      }
-
-      // Stage E: Fill remaining distant unreached pairs with calibrated estimate
-      for (let i = 0; i < n; i++) {
-        for (let j = 0; j < n; j++) {
-          if (i !== j && distances[i][j] === 0) {
-            storeFallbackCell(i, j);
-          }
-        }
+        await this.runLimited(tasks);
+      } else {
+        await this.fetchLargeInstance(points, missing, fetchBlock);
       }
     }
 
-    // --- ACCURATE COVERAGE STATISTICS ---
+    // Anything still unknown: calibrated straight-line estimate
+    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) if (missing(i, j)) storeFallback(i, j);
+
+    // --- Coverage statistics ---
     const totalPairs = n * (n - 1);
     let roadPairs = 0;
-    let fallbackPairs = 0;
-
-    for (let i = 0; i < n; i++) {
-      for (let j = 0; j < n; j++) {
-        if (i === j) continue;
-        const key = this.pairKey(points[i], points[j]);
-        const cell = this.pairCache.get(key);
-        if (cell && cell.isRealRoad) {
-          roadPairs++;
-        } else {
-          fallbackPairs++;
-        }
-      }
-    }
-
-    const coveragePercent = totalPairs > 0
-      ? Math.round((roadPairs / totalPairs) * 1000) / 10
-      : 100;
-
+    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) if (i !== j && isReal[i][j]) roadPairs++;
+    const fallbackPairs = totalPairs - roadPairs;
+    const coveragePercent = totalPairs > 0 ? Math.round((roadPairs / totalPairs) * 1000) / 10 : 100;
     const routingProviderName = fallbackPairs === 0
       ? 'OSRM Table API (100% Road Network)'
       : roadPairs > 0
         ? `OSRM Table API (${coveragePercent}% Road Coverage, ${fallbackPairs} Estimate Pairs)`
         : 'OSRM Offline (Haversine Calibrated)';
 
-    if (this.pairCache.size > this.MAX_CACHE_ENTRIES) {
-      // LRU prune: delete oldest fallback entries first
-      const keys = Array.from(this.pairCache.keys());
-      for (let k = 0; k < 2000 && k < keys.length; k++) {
-        const cell = this.pairCache.get(keys[k]);
-        if (cell && cell.isFallback) {
-          this.pairCache.delete(keys[k]);
-        }
-      }
-    }
-
-    this.persistDebounced();
+    roadCache.lastHits = cachedCellsCount;
+    roadCache.lastFetched = fetchedCellsCount;
+    void roadCache.flush();
 
     // Road barriers: correct the cells whose fastest route goes through a closed road.
     // The cached base cells stay barrier-free; corrected values live only in this result.
@@ -638,6 +343,64 @@ class DistanceMatrixManager {
       coveragePercent,
       routingProvider: routingProviderName
     };
+  }
+
+  /**
+   * Very large instances (> FULL_COVERAGE_MAX_POINTS): real road values where they matter most —
+   * depot ↔ every point, inside angular corridors, and each point's nearest neighbours.
+   * Repeated routings of the same stores gradually fill the rest through the road cache.
+   */
+  private async fetchLargeInstance(
+    points: Pt[],
+    missing: (i: number, j: number) => boolean,
+    fetchBlock: (src: number[], dst: number[]) => Promise<boolean>
+  ): Promise<void> {
+    const n = points.length;
+    const nonDepot = Array.from({ length: n - 1 }, (_, i) => i + 1);
+    let failures = 0;
+    const tasks: (() => Promise<void>)[] = [];
+    const add = (src: number[], dst: number[]) => tasks.push(async () => {
+      if (failures >= 3) return;
+      if (!src.some(i => dst.some(j => missing(i, j)))) return;
+      if (!(await fetchBlock(src, dst))) failures++;
+    });
+
+    // Depot star (both directions), 99 points per request
+    for (let s = 0; s < nonDepot.length; s += OSRM_MAX_COORDS - 1) {
+      const batch = nonDepot.slice(s, s + OSRM_MAX_COORDS - 1);
+      add([0], batch);
+      add(batch, [0]);
+    }
+
+    // Angular corridors around the depot: full matrix inside each group of 50
+    const sorted = [...nonDepot].sort((a, b) =>
+      Math.atan2(points[a].lat - points[0].lat, points[a].lng - points[0].lng) -
+      Math.atan2(points[b].lat - points[0].lat, points[b].lng - points[0].lng));
+    const groups: number[][] = [];
+    for (let i = 0; i < sorted.length; i += BLOCK) groups.push(sorted.slice(i, i + BLOCK));
+    groups.forEach(g => add(g, g));
+    // Bridges between neighbouring corridors
+    for (let c = 0; c < groups.length; c++) {
+      const next = groups[(c + 1) % groups.length];
+      if (next === groups[c]) continue;
+      add(groups[c].slice(-25), next.slice(0, 25));
+      add(next.slice(0, 25), groups[c].slice(-25));
+    }
+
+    // 10 nearest neighbours of every point
+    const knn = (i: number) => nonDepot
+      .filter(j => j !== i)
+      .map(j => ({ j, d: calculateDistance(points[i].lat, points[i].lng, points[j].lat, points[j].lng) }))
+      .sort((a, b) => a.d - b.d)
+      .slice(0, 10)
+      .map(x => x.j);
+    for (let s = 1; s < n; s += 9) {
+      const src = Array.from({ length: Math.min(9, n - s) }, (_, k) => s + k);
+      const dst = Array.from(new Set(src.flatMap(knn))).slice(0, OSRM_MAX_COORDS - src.length);
+      add(src, dst);
+    }
+
+    await this.runLimited(tasks);
   }
 }
 

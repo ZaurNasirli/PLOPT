@@ -18,6 +18,7 @@ import {
   generateRouteExplanation,
   calculateSolutionMetrics
 } from './optimizer';
+import { runOptimizer } from './optimizer/workerClient';
 
 // Re-export everything from the optimizer module for external consumers
 export * from './optimizer';
@@ -178,12 +179,12 @@ export const runSmartLogistics = async (
     onProgress({
       percent: baseProgress + 10,
       message: `🧠 Запуск Multi-Start Hybrid VRP (${config.multiStartIterations} независимых решений)...`,
-      log: `Матрица готова (${matrix.isRealRoad ? 'OSRM 100% реальные дороги' : 'Haversine fallback'}). Оптимизация...`
+      log: `Матрица готова (${matrix.isRealRoad ? 'OSRM 100% реальные дороги' : `реальные дороги ${matrix.coveragePercent}%`}; из кэша ${matrix.cachedPairsCount} пар, запрошено ${matrix.fetchedPairsCount}). Оптимизация...`
     });
     await new Promise(r => setTimeout(r, 10));
 
     // Multi-Start Optimization with ILS and Local Search
-    const solutionIndices = await optimizeMultiStartVRP(
+    const solutionIndices = await runOptimizer(
       orderIndices,
       partitionOrders,
       matrix,

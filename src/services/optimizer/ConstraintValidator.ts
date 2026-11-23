@@ -1,6 +1,6 @@
 import { Order, TruckType } from '../../types';
-import { RoutingLimits } from '../routingService';
-import { RoadMatrixLookup } from './DistanceMatrix';
+import type { RoutingLimits } from '../routingService';
+import { RoadMatrixLookup } from './RoadMatrix';
 
 export interface TimeWindowInterval {
   startMinutes: number; // minutes from 00:00 (e.g. 08:00 = 480)
@@ -78,10 +78,23 @@ export function getEffectiveCapacityLimit(
   };
 }
 
+const timeSlotCache = new Map<string, TimeWindowInterval>();
+
 /**
- * Parses a textual or interval time slot into minutes from midnight.
+ * Parses a textual or interval time slot into minutes from midnight (memoized: called in the optimizer hot path).
  */
 export function parseTimeSlot(slotStr?: string): TimeWindowInterval {
+  if (!slotStr || typeof slotStr !== 'string') return parseTimeSlotUncached(slotStr);
+  let cached = timeSlotCache.get(slotStr);
+  if (!cached) {
+    cached = parseTimeSlotUncached(slotStr);
+    if (timeSlotCache.size > 5000) timeSlotCache.clear();
+    timeSlotCache.set(slotStr, cached);
+  }
+  return cached;
+}
+
+function parseTimeSlotUncached(slotStr?: string): TimeWindowInterval {
   if (!slotStr || typeof slotStr !== 'string') {
     return { startMinutes: 480, endMinutes: 1260 }; // Default 08:00 - 21:00 (full working day)
   }

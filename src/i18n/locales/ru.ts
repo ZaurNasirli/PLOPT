@@ -668,5 +668,8 @@ export const ru = {
   barrierDefaultName: 'Барьер {n}',
   barrierZoneDefaultName: 'Зона {n}',
   barrierRouteDetourBadge: 'Объезд барьера',
-  barrierRouteBlockedBadge: 'Через барьер'
+  barrierRouteBlockedBadge: 'Через барьер',
+  storeDirectoryCount: 'Магазинов в справочнике',
+  roadCacheCount: 'Дорожных расстояний в кэше',
+  roadCacheLastHit: 'Из кэша при последнем расчёте'
 };

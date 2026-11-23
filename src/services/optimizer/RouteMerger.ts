@@ -1,11 +1,12 @@
 import { Order } from '../../types';
-import { RoutingLimits } from '../routingService';
-import { RoadMatrixLookup } from './DistanceMatrix';
+import type { RoutingLimits } from '../routingService';
+import { RoadMatrixLookup } from './RoadMatrix';
 import { SmartVRPConfig } from './types';
 import { checkHardLimits, getRouteCapacities } from './ConstraintValidator';
 import { evaluateSolutionScore } from './ObjectiveFunction';
 import { optimizeRoute2Opt, optimizeRouteOrOpt } from './LocalSearch';
 import { findBestInsertion } from './RouteBuilder';
+import { timeUp } from './searchControl';
 
 function isRouteLocked(route: number[], ordersMap: Order[], limits: RoutingLimits): boolean {
   if (!route || route.length === 0) return false;
@@ -50,10 +51,10 @@ export function optimizeRouteMerge(
   let currentScore = evaluateSolutionScore(solution, ordersMap, matrix, limits, config);
   let merged = true;
 
-  while (merged && solution.length > 1) {
+  while (merged && solution.length > 1 && !timeUp()) {
     merged = false;
 
-    for (let i = 0; i < solution.length - 1; i++) {
+    for (let i = 0; i < solution.length - 1 && !timeUp(); i++) {
       if (isRouteLocked(solution[i], ordersMap, limits)) continue;
       for (let j = i + 1; j < solution.length; j++) {
         if (isRouteLocked(solution[j], ordersMap, limits)) continue;
@@ -155,7 +156,7 @@ export function eliminateUnderutilizedRoutes(
   if (solution.length <= 1) return solution;
 
   let changed = true;
-  while (changed && solution.length > 1) {
+  while (changed && solution.length > 1 && !timeUp()) {
     changed = false;
     let currentScore = evaluateSolutionScore(solution, ordersMap, matrix, limits, config);
 

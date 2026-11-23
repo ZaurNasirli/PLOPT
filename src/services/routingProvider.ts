@@ -4,6 +4,7 @@
 
 import { getActiveBarriers, getBarrierHash, anyBarrierTouchesPath } from './barriers/barrierStore';
 import { valhallaRoute } from './barriers/valhallaClient';
+import { roadCache, coordKey } from './cloud/roadCache';
 
 const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
   const R = 6371;
@@ -228,7 +229,7 @@ class RoutingProviderService {
     endpoint: string,
     coordsParam: string,
     timeoutMs: number = 6000
-  ): Promise<{ coordinates: [number, number][]; distanceMeters: number; durationSeconds: number } | null> {
+  ): Promise<{ coordinates: [number, number][]; distanceMeters: number; durationSeconds: number; legs: [number, number][] } | null> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -245,7 +246,8 @@ class RoutingProviderService {
         return {
           coordinates,
           distanceMeters: route.distance || 0,
-          durationSeconds: route.duration || 0
+          durationSeconds: route.duration || 0,
+          legs: Array.isArray(route.legs) ? route.legs.map((l: { distance: number; duration: number }) => [l.distance, l.duration] as [number, number]) : []
         };
       }
     } catch {
@@ -276,6 +278,14 @@ class RoutingProviderService {
 
     this.totalRequests++;
     const coordsParam = points.map(p => `${p.lng.toFixed(6)},${p.lat.toFixed(6)}`).join(';');
+    // Every leg of a real road route is a learned point-to-point distance: keep it in the road cache
+    const learnLegs = (legs: [number, number][]) => {
+      legs.forEach(([meters, seconds], k) => {
+        if (points[k] && points[k + 1]) {
+          roadCache.put(coordKey(points[k]), coordKey(points[k + 1]), Math.round(meters) / 1000, Math.round(seconds / 0.6) / 100);
+        }
+      });
+    };
 
     // 1. Attempt Primary OSRM Endpoint
     const release1 = await this.acquireSlot();
@@ -287,6 +297,7 @@ class RoutingProviderService {
     }
 
     if (primaryRes) {
+      learnLegs(primaryRes.legs);
       this.consecutiveErrors = 0;
       this.roadRequestsSuccess++;
       this.setStatus('osrm_active', 'OSRM (Project OSRM)');
@@ -308,6 +319,7 @@ class RoutingProviderService {
     }
 
     if (backupRes) {
+      learnLegs(backupRes.legs);
       this.consecutiveErrors = 0;
       this.roadRequestsSuccess++;
       this.setStatus('backup_active', 'OpenStreetMap DE (Резервный)');
@@ -329,6 +341,7 @@ class RoutingProviderService {
     }
 
     if (retryRes) {
+      learnLegs(retryRes.legs);
       this.consecutiveErrors = 0;
       this.roadRequestsSuccess++;
       this.setStatus('osrm_active', 'OSRM (Project OSRM)');

@@ -7,9 +7,11 @@ import { cn } from '../../lib/utils';
 interface CloudSyncButtonProps {
   cloud: CloudSyncApi;
   variant?: 'desktop' | 'mobile';
+  /** Extra facts shown in the panel (e.g. store directory and road cache sizes) */
+  details?: { label: string; value: string }[];
 }
 
-export const CloudSyncButton: React.FC<CloudSyncButtonProps> = ({ cloud, variant = 'desktop' }) => {
+export const CloudSyncButton: React.FC<CloudSyncButtonProps> = ({ cloud, variant = 'desktop', details = [] }) => {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -116,6 +118,17 @@ export const CloudSyncButton: React.FC<CloudSyncButtonProps> = ({ cloud, variant
           )}
 
           {lastSyncLabel && user && <div className="text-muted-foreground">{lastSyncLabel}</div>}
+
+          {details.length > 0 && (
+            <div className="space-y-0.5 p-2 rounded-lg bg-muted/30 border">
+              {details.map(d => (
+                <div key={d.label} className="flex justify-between gap-2">
+                  <span className="text-muted-foreground">{d.label}</span>
+                  <span className="font-semibold text-right">{d.value}</span>
+                </div>
+              ))}
+            </div>
+          )}
 
           {errorText && (
             <div className="p-2 rounded-lg border border-destructive/30 bg-destructive/10 text-destructive leading-relaxed break-words">

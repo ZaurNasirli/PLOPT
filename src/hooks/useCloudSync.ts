@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { isFirebaseConfigured, loadFirebase } from '../services/cloud/firebaseClient';
 import { CloudStore, createFirestoreStore } from '../services/cloud/cloudStore';
+import { roadCache } from '../services/cloud/roadCache';
 
 export type CloudStatus =
   | 'disabled'    // Firebase env variables are not set: local-only mode
@@ -178,6 +179,8 @@ export function useCloudSync(
           const session = ++sessionRef.current;
           storeRef.current = null;
           setReady(false);
+          // the road distance cache follows the signed-in account (users/{uid}/roads)
+          roadCache.setUser(fbUser ? fbUser.uid : null);
           if (!fbUser) {
             setUser(null);
             setStatus('signed-out');

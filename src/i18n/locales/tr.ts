@@ -668,5 +668,8 @@ export const tr = {
   barrierDefaultName: 'Bariyer {n}',
   barrierZoneDefaultName: 'Alan {n}',
   barrierRouteDetourBadge: 'Bariyer dolaşması',
-  barrierRouteBlockedBadge: 'Bariyerden geçiyor'
+  barrierRouteBlockedBadge: 'Bariyerden geçiyor',
+  storeDirectoryCount: 'Rehberdeki mağazalar',
+  roadCacheCount: 'Önbellekteki yol mesafeleri',
+  roadCacheLastHit: 'Son hesaplamada önbellekten'
 };

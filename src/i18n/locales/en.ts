@@ -668,5 +668,8 @@ export const en = {
   barrierDefaultName: 'Barrier {n}',
   barrierZoneDefaultName: 'Area {n}',
   barrierRouteDetourBadge: 'Barrier detour',
-  barrierRouteBlockedBadge: 'Through barrier'
+  barrierRouteBlockedBadge: 'Through barrier',
+  storeDirectoryCount: 'Stores in directory',
+  roadCacheCount: 'Road distances cached',
+  roadCacheLastHit: 'From cache in last routing'
 };

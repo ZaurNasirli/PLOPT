@@ -1,8 +1,8 @@
 import { Order } from '../../types';
-import { RoutingLimits } from '../routingService';
+import type { RoutingLimits } from '../routingService';
 import { WAREHOUSE_LOCATION } from '../../mockData';
-import { calculateDistance } from '../routingService';
-import { RoadMatrixLookup } from './DistanceMatrix';
+import { calculateDistance } from '../geo';
+import { RoadMatrixLookup } from './RoadMatrix';
 import { SmartVRPConfig, normaliseWeights } from './types';
 import { 
   checkHardLimits, 
@@ -156,6 +156,161 @@ export function evaluateCapacityScore(
   return 0.75 + Math.min(0.25, pos * 0.25);
 }
 
+// ---------------------------------------------------------------------------
+// Evaluation cache
+//
+// The local search evaluates the same routes over and over (a candidate solution differs
+// from the current one in only two routes). Metrics are cached per route sequence, and the
+// parts that depend only on the SET of stops (limits check, capacity, angular spread,
+// detour baseline) are cached per sorted set, so reordering moves never recompute them.
+// Formulas are unchanged.
+// ---------------------------------------------------------------------------
+
+interface SetMetrics {
+  feasible: boolean;
+  totalW: number;
+  totalV: number;
+  maxW: number;
+  maxV: number;
+  spreadPenalty: number;
+  detourBaseline: number;
+}
+
+interface RouteMetrics {
+  set: SetMetrics;
+  orders: Order[];
+  distKm: number;
+  schedule: ReturnType<typeof evaluateRouteSchedule>;
+  dirScore: number;
+  regionScore: number;
+  detourScore: number;
+}
+
+interface EvalCache {
+  sets: Map<string, SetMetrics>;
+  routes: Map<string, RouteMetrics>;
+  fleetVolume: number;
+}
+
+const MAX_CACHE_ENTRIES = 250_000;
+const evalCaches = new WeakMap<RoadMatrixLookup, WeakMap<Order[], WeakMap<RoutingLimits, Map<string, EvalCache>>>>();
+
+function getEvalCache(matrix: RoadMatrixLookup, ordersMap: Order[], limits: RoutingLimits, scheduleKey: string): EvalCache {
+  let byOrders = evalCaches.get(matrix);
+  if (!byOrders) { byOrders = new WeakMap(); evalCaches.set(matrix, byOrders); }
+  let byLimits = byOrders.get(ordersMap);
+  if (!byLimits) { byLimits = new WeakMap(); byOrders.set(ordersMap, byLimits); }
+  let bySchedule = byLimits.get(limits);
+  if (!bySchedule) { bySchedule = new Map(); byLimits.set(limits, bySchedule); }
+  let cache = bySchedule.get(scheduleKey);
+  if (!cache) {
+    cache = { sets: new Map(), routes: new Map(), fleetVolume: ordersMap.reduce((s, o) => s + o.volume, 0) };
+    bySchedule.set(scheduleKey, cache);
+  }
+  return cache;
+}
+
+function computeSetMetrics(sorted: number[], ordersMap: Order[], matrix: RoadMatrixLookup, limits: RoutingLimits): SetMetrics {
+  const orders = sorted.map(idx => ordersMap[idx - 1]).filter(Boolean);
+  const feasible = checkHardLimits(orders, limits);
+  const { maxW, maxV } = getRouteCapacities(orders, limits);
+  const totalW = orders.reduce((s, o) => s + o.weight, 0);
+  const totalV = orders.reduce((s, o) => s + o.volume, 0);
+
+  // Angular spread (same as evaluateDirectionalCompactness)
+  let spreadPenalty = 0;
+  if (orders.length > 1) {
+    const angles = orders.map(o => getDepotAngle(o.lat, o.lng));
+    let maxSpread = 0;
+    for (let i = 0; i < angles.length; i++) {
+      for (let j = i + 1; j < angles.length; j++) {
+        const diff = getAngleDiff(angles[i], angles[j]);
+        if (diff > maxSpread) maxSpread = diff;
+      }
+    }
+    if (maxSpread > Math.PI / 2) spreadPenalty = Math.min(1.0, (maxSpread - Math.PI / 2) / (Math.PI / 2));
+  }
+
+  // Detour baseline (same as evaluateRoadDetourRatio)
+  let detourBaseline = 3.0;
+  if (sorted.length > 1) {
+    let minDepotDist = Infinity;
+    for (const idx of sorted) minDepotDist = Math.min(minDepotDist, matrix.getDistance(0, idx));
+    let nnSum = 0;
+    for (let i = 0; i < sorted.length; i++) {
+      let minNeighbor = Infinity;
+      for (let j = 0; j < sorted.length; j++) {
+        if (i === j) continue;
+        const d = matrix.getDistance(sorted[i], sorted[j]);
+        if (d < minNeighbor) minNeighbor = d;
+      }
+      nnSum += minNeighbor === Infinity ? 0 : minNeighbor;
+    }
+    detourBaseline = Math.max(2 * minDepotDist + nnSum * 0.9, 3.0);
+  }
+
+  return { feasible, totalW, totalV, maxW, maxV, spreadPenalty, detourBaseline };
+}
+
+export function getRouteMetrics(
+  route: number[],
+  ordersMap: Order[],
+  matrix: RoadMatrixLookup,
+  limits: RoutingLimits,
+  config: SmartVRPConfig
+): RouteMetrics {
+  const serviceMin = limits.serviceTimeMinutes ?? config.defaultServiceTimeMinutes ?? 10;
+  const startMin = (config.depotStartHour ?? 8) * 60;
+  const cache = getEvalCache(matrix, ordersMap, limits, `${serviceMin}|${startMin}`);
+  const key = route.join(',');
+  const hit = cache.routes.get(key);
+  if (hit) return hit;
+
+  const setKey = route.length > 1 ? [...route].sort((a, b) => a - b).join(',') : key;
+  let set = cache.sets.get(setKey);
+  if (!set) {
+    set = computeSetMetrics(setKey === key ? [...route] : [...route].sort((a, b) => a - b), ordersMap, matrix, limits);
+    if (cache.sets.size > MAX_CACHE_ENTRIES) cache.sets.clear();
+    cache.sets.set(setKey, set);
+  }
+
+  const orders = route.map(idx => ordersMap[idx - 1]).filter(Boolean);
+  const distKm = matrix.calculateRoundTripDistance(route);
+
+  let detourScore = 0;
+  if (route.length > 1) {
+    const detourRatio = Math.max(1.0, Math.round((distKm / set.detourBaseline) * 100) / 100);
+    detourScore = Math.min(1.0, Math.max(0, (detourRatio - 1.0) / 0.8));
+  }
+
+  let dirScore = 0;
+  if (orders.length > 1) {
+    let reversals = 0;
+    for (let i = 0; i < orders.length - 2; i++) {
+      const a1 = getDepotAngle(orders[i].lat, orders[i].lng);
+      const a2 = getDepotAngle(orders[i + 1].lat, orders[i + 1].lng);
+      const a3 = getDepotAngle(orders[i + 2].lat, orders[i + 2].lng);
+      if (getAngleDiff(a1, a2) > Math.PI / 4 && getAngleDiff(a2, a3) > Math.PI / 4 && getAngleDiff(a1, a3) < Math.PI / 6) {
+        reversals++;
+      }
+    }
+    dirScore = Math.min(1.0, set.spreadPenalty * 0.7 + Math.min(1.0, reversals * 0.25) * 0.3);
+  }
+
+  const metrics: RouteMetrics = {
+    set,
+    orders,
+    distKm,
+    schedule: evaluateRouteSchedule(route, matrix, ordersMap, serviceMin, startMin),
+    dirScore,
+    regionScore: evaluateRegionMixingScore(orders),
+    detourScore
+  };
+  if (cache.routes.size > MAX_CACHE_ENTRIES) cache.routes.clear();
+  cache.routes.set(key, metrics);
+  return metrics;
+}
+
 /**
  * Evaluates an individual route and returns a normalized score [0, 1+].
  * Returns Infinity if hard capacity limits are violated.
@@ -169,32 +324,13 @@ export function evaluateSingleRouteScore(
 ): number {
   if (orderIndices.length === 0) return 0;
 
-  const routeOrders = orderIndices.map(idx => ordersMap[idx - 1]).filter(Boolean);
-  if (!checkHardLimits(routeOrders, limits)) return Infinity;
+  const m = getRouteMetrics(orderIndices, ordersMap, matrix, limits, config);
+  if (!m.set.feasible) return Infinity;
 
-  const { maxW, maxV } = getRouteCapacities(routeOrders, limits);
-  const totalW = routeOrders.reduce((s, o) => s + o.weight, 0);
-  const totalV = routeOrders.reduce((s, o) => s + o.volume, 0);
-  const wUtil = maxW > 0 ? totalW / maxW : 0.8;
-  const vUtil = maxV > 0 ? totalV / maxV : 0.8;
   // Volume is the primary load driver in this domain (Requirement 5)
-  const primaryVolumeUtil = vUtil;
-
-  const detourRatio = evaluateRoadDetourRatio(orderIndices, matrix);
-  const detourScore = Math.min(1.0, Math.max(0, (detourRatio - 1.0) / 0.8));
-
-  const capacityScore = evaluateCapacityScore(primaryVolumeUtil, config);
-  const dirScore = evaluateDirectionalCompactness(routeOrders);
-  const regionScore = evaluateRegionMixingScore(routeOrders);
-
-  // Time window evaluation
-  const schedule = evaluateRouteSchedule(
-    orderIndices,
-    matrix,
-    ordersMap,
-    limits.serviceTimeMinutes ?? config.defaultServiceTimeMinutes ?? 10,
-    (config.depotStartHour ?? 8) * 60
-  );
+  const vUtil = m.set.maxV > 0 ? m.set.totalV / m.set.maxV : 0.8;
+  const capacityScore = evaluateCapacityScore(vUtil, config);
+  const schedule = m.schedule;
 
   // HARD TIME WINDOW: Heavy finite penalty so local search actively eliminates violations without breaking seed scoring
   let hardTwPenalty = 0;
@@ -206,8 +342,7 @@ export function evaluateSingleRouteScore(
   const timeWindowScore = Math.min(1.0, schedule.totalLatenessMinutes / 45.0);
 
   // Road distance contribution normalized by route size
-  const distanceKm = matrix.calculateRoundTripDistance(orderIndices);
-  const distanceScore = Math.min(1.0, distanceKm / (orderIndices.length * 15 + 30));
+  const distanceScore = Math.min(1.0, m.distKm / (orderIndices.length * 15 + 30));
 
   // Driving & waiting & service duration contribution normalized
   const durationScore = Math.min(1.0, schedule.totalDurationMinutes / 480.0);
@@ -221,6 +356,7 @@ export function evaluateSingleRouteScore(
   // Route stability penalty (penalize deviating from yesterday's plan if provided)
   let stabilityPenalty = 0;
   if (limits.previousPlan && config.routeStabilityWeight > 0) {
+    const routeOrders = m.orders;
     let changedCount = 0;
     const firstPrevRoute = limits.previousPlan[routeOrders[0]?.id];
     for (const ord of routeOrders) {
@@ -235,13 +371,20 @@ export function evaluateSingleRouteScore(
     config.distanceWeight * distanceScore +
     config.durationWeight * durationScore +
     config.capacityUtilizationWeight * capacityScore +
-    config.geographicCompactnessWeight * (detourScore * 0.6 + dirScore * 0.4) +
-    config.regionConsistencyWeight * regionScore +
+    config.geographicCompactnessWeight * (m.detourScore * 0.6 + m.dirScore * 0.4) +
+    config.regionConsistencyWeight * m.regionScore +
     config.timeWindowWeight * timeWindowScore +
     constraintPenalty +
     stabilityPenalty +
     hardTwPenalty
   );
+}
+
+const normalisedConfigs = new WeakMap<SmartVRPConfig, SmartVRPConfig>();
+function normalisedConfig(config: SmartVRPConfig): SmartVRPConfig {
+  let n = normalisedConfigs.get(config);
+  if (!n) { n = normaliseWeights(config); normalisedConfigs.set(config, n); }
+  return n;
 }
 
 /**
@@ -265,7 +408,7 @@ export function evaluateSolutionScore(
   limits: RoutingLimits,
   userConfig: SmartVRPConfig
 ): number {
-  const config = normaliseWeights(userConfig);
+  const config = normalisedConfig(userConfig);
   const activeRoutes = solutionRoutes.filter(r => r.length > 0);
   if (activeRoutes.length === 0) return 0;
 
@@ -286,21 +429,16 @@ export function evaluateSolutionScore(
 
   const utilizations: number[] = [];
   const stopCounts: number[] = [];
+  let fleetVolume = 0;
 
   for (const r of activeRoutes) {
-    const routeOrders = r.map(idx => ordersMap[idx - 1]).filter(Boolean);
-    if (!checkHardLimits(routeOrders, limits)) return Infinity;
+    const m = getRouteMetrics(r, ordersMap, matrix, limits, config);
+    if (!m.set.feasible) return Infinity;
+    fleetVolume = getEvalCache(matrix, ordersMap, limits,
+      `${limits.serviceTimeMinutes ?? config.defaultServiceTimeMinutes ?? 10}|${(config.depotStartHour ?? 8) * 60}`).fleetVolume;
 
-    const dist = matrix.calculateRoundTripDistance(r);
-    totalDistKm += dist;
-
-    const schedule = evaluateRouteSchedule(
-      r,
-      matrix,
-      ordersMap,
-      limits.serviceTimeMinutes ?? config.defaultServiceTimeMinutes ?? 10,
-      (config.depotStartHour ?? 8) * 60
-    );
+    totalDistKm += m.distKm;
+    const schedule = m.schedule;
 
     if (limits.timeWindowMode === 'hard' && schedule.violationsCount > 0) {
       totalHardTwPenalty += 10.0 * schedule.violationsCount + schedule.totalLatenessMinutes * 0.5;
@@ -313,18 +451,15 @@ export function evaluateSolutionScore(
       totalShiftOvertimeMin += (schedule.totalDurationMinutes - config.maxRouteDurationHours * 60);
     }
 
-    const { maxV } = getRouteCapacities(routeOrders, limits);
-    const totalV = routeOrders.reduce((s, o) => s + o.volume, 0);
     // Volume is the primary utilization driver (Requirement 5)
-    const volumeUtil = maxV > 0 ? totalV / maxV : 0.8;
+    const volumeUtil = m.set.maxV > 0 ? m.set.totalV / m.set.maxV : 0.8;
 
     utilizations.push(volumeUtil);
     stopCounts.push(r.length);
 
-    const detourRatio = evaluateRoadDetourRatio(r, matrix);
-    totalDetourScore += Math.min(1.0, Math.max(0, (detourRatio - 1.0) / 0.8));
-    totalDirScore += evaluateDirectionalCompactness(routeOrders);
-    totalRegionScore += evaluateRegionMixingScore(routeOrders);
+    totalDetourScore += m.detourScore;
+    totalDirScore += m.dirScore;
+    totalRegionScore += m.regionScore;
   }
 
   // Must-stay-together global check across routes
@@ -360,7 +495,7 @@ export function evaluateSolutionScore(
   const durationScore = Math.min(1.0, avgDurationPerVehicle / 480.0);
 
   // 3. Vehicle Count Score: theoretical minimum trucks based on total volume
-  const totalFleetVolume = ordersMap.reduce((s, o) => s + o.volume, 0);
+  const totalFleetVolume = fleetVolume;
   const maxFleetTruckV = limits.maxVolume > 0
     ? limits.maxVolume
     : (limits.truckTypes && limits.truckTypes.length > 0
