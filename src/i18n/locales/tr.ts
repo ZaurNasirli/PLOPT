@@ -418,6 +418,8 @@ export const tr = {
   optDiffMileage: 'Kilometre (km)',
   optDiffCost: 'Maliyet',
   optDiffSavings: 'Tasarruf: {value}',
+  optDiffIncrease: 'Artış: +{value}',
+  optDiffNoChange: 'Değişiklik yok',
   optDiffRoutes: 'Rotalar',
   optDiffRoutesUsed: 'Kullanılan araç',
   optDiffVolumeLoad: 'Kasa doluluğu',

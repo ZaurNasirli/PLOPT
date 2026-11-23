@@ -7,6 +7,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { Driver, Shift, Route, TruckType } from '../types';
 import { useTranslation } from '../i18n/I18nContext';
+import { toLocalDateStr } from '../lib/utils';
 
 interface RotaPageProps {
   routes: Route[];
@@ -25,9 +26,9 @@ const INITIAL_DRIVERS: Driver[] = [
 ];
 
 const INITIAL_SHIFTS: Shift[] = [
-  { id: 'sh-1', driverId: 'drv-1', date: new Date().toISOString().split('T')[0], type: 'morning' },
-  { id: 'sh-2', driverId: 'drv-2', date: new Date().toISOString().split('T')[0], type: 'full-day' },
-  { id: 'sh-3', driverId: 'drv-4', date: new Date().toISOString().split('T')[0], type: 'morning' },
+  { id: 'sh-1', driverId: 'drv-1', date: toLocalDateStr(), type: 'morning' },
+  { id: 'sh-2', driverId: 'drv-2', date: toLocalDateStr(), type: 'full-day' },
+  { id: 'sh-3', driverId: 'drv-4', date: toLocalDateStr(), type: 'morning' },
 ];
 
 export const RotaPage: React.FC<RotaPageProps> = ({ routes, truckTypes, orders }) => {
@@ -137,7 +138,7 @@ export const RotaPage: React.FC<RotaPageProps> = ({ routes, truckTypes, orders }
   };
 
   const handleOpenAddShift = (date: Date) => {
-    setSelectedDateStr(date.toISOString().split('T')[0]);
+    setSelectedDateStr(toLocalDateStr(date));
     setShowAddShiftModal(true);
   };
 
@@ -168,7 +169,7 @@ export const RotaPage: React.FC<RotaPageProps> = ({ routes, truckTypes, orders }
         return { 
           ...d, 
           shiftsCount: d.shiftsCount + 1,
-          status: selectedDateStr === new Date().toISOString().split('T')[0] ? 'on-shift' : d.status
+          status: selectedDateStr === toLocalDateStr() ? 'on-shift' : d.status
         };
       }
       return d;
@@ -310,9 +311,9 @@ export const RotaPage: React.FC<RotaPageProps> = ({ routes, truckTypes, orders }
               {/* Grid of Calendar Week Days */}
               <div className="grid grid-cols-1 md:grid-cols-7 gap-4">
                 {weekDates.map((date, dateIdx) => {
-                  const dateStr = date.toISOString().split('T')[0];
+                  const dateStr = toLocalDateStr(date);
                   const dayShifts = shifts.filter(s => s.date === dateStr);
-                  const isToday = new Date().toISOString().split('T')[0] === dateStr;
+                  const isToday = toLocalDateStr() === dateStr;
 
                   return (
                     <div 
@@ -508,7 +509,7 @@ export const RotaPage: React.FC<RotaPageProps> = ({ routes, truckTypes, orders }
                     <h4 className="font-black text-sm uppercase tracking-wider text-muted-foreground">Активные маршруты ({routes.length})</h4>
                     <div className="space-y-4">
                       {routes.map((route, rIdx) => {
-                        const assignedShift = shifts.find(s => s.routeId === route.id && s.date === new Date().toISOString().split('T')[0]);
+                        const assignedShift = shifts.find(s => s.routeId === route.id && s.date === toLocalDateStr());
                         const assignedDriver = assignedShift ? drivers.find(d => d.id === assignedShift.driverId) : null;
 
                         return (
@@ -561,7 +562,7 @@ export const RotaPage: React.FC<RotaPageProps> = ({ routes, truckTypes, orders }
                                       const created: Shift = {
                                         id: `sh-${Date.now()}`,
                                         driverId,
-                                        date: new Date().toISOString().split('T')[0],
+                                        date: toLocalDateStr(),
                                         type: 'full-day',
                                         routeId: route.id
                                       };
@@ -593,7 +594,7 @@ export const RotaPage: React.FC<RotaPageProps> = ({ routes, truckTypes, orders }
                     <h4 className="font-black text-sm uppercase tracking-wider text-muted-foreground">Доступные дежурные водители ({drivers.filter(d => d.status !== 'vacation').length})</h4>
                     <div className="bg-card border rounded-2xl p-4 space-y-3">
                       {drivers.filter(d => d.status !== 'vacation').map((driver, drvIdx) => {
-                        const isAssigned = shifts.some(s => s.driverId === driver.id && s.date === new Date().toISOString().split('T')[0] && s.routeId);
+                        const isAssigned = shifts.some(s => s.driverId === driver.id && s.date === toLocalDateStr() && s.routeId);
                         return (
                           <div key={`avail-driver-${driver.id}-${drvIdx}`} className="flex justify-between items-center p-3 border rounded-xl hover:bg-muted/30 transition-colors">
                             <div className="flex items-center gap-3">

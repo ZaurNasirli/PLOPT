@@ -20,6 +20,7 @@ import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTranslation } from '../i18n/I18nContext';
+import { toLocalDateStr } from '../lib/utils';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -586,7 +587,7 @@ export const BulkActionsMenu: React.FC<BulkActionsMenuProps> = ({
                     size="sm" 
                     className="flex-1 text-[10px] h-7 cursor-pointer"
                     onClick={() => {
-                      const today = new Date().toISOString().split('T')[0];
+                      const today = toLocalDateStr();
                       setTargetDate(today);
                     }}
                   >
@@ -597,7 +598,7 @@ export const BulkActionsMenu: React.FC<BulkActionsMenuProps> = ({
                     size="sm" 
                     className="flex-1 text-[10px] h-7 cursor-pointer"
                     onClick={() => {
-                      const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+                      const tomorrow = toLocalDateStr(new Date(Date.now() + 86400000));
                       setTargetDate(tomorrow);
                     }}
                   >

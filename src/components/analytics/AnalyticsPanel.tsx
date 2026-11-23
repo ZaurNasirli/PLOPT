@@ -43,6 +43,33 @@ export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({
 
   const formatDec1 = (num: number) => num.toFixed(1);
 
+  // Per-route load against the capacity of the truck assigned to the route
+  // (falls back to the global limits when no truck type is assigned)
+  const orderMap = new Map(orders.map(o => [o.id, o]));
+  const routeLoad = (r: Route) => {
+    const rOrders = r.orderIds.map(id => orderMap.get(id)).filter((o): o is Order => Boolean(o));
+    const weight = rOrders.reduce((s, o) => s + o.weight, 0);
+    const volume = rOrders.reduce((s, o) => s + o.volume, 0);
+    const truck = routingLimits.truckTypes?.find(tt => tt.id === r.truckTypeId);
+    const maxW = truck?.maxWeight || routingLimits.maxWeight || 0;
+    const maxV = truck?.maxVolume || routingLimits.maxVolume || 0;
+    return {
+      weight,
+      volume,
+      weightUtil: maxW > 0 ? weight / maxW : null,
+      volumeUtil: maxV > 0 ? volume / maxV : null
+    };
+  };
+  const loads = routes.map(routeLoad);
+  const avgUtil = (key: 'weightUtil' | 'volumeUtil') => {
+    const vals = loads.map(l => l[key]).filter((v): v is number => v !== null);
+    return vals.length > 0 ? Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 100) : 0;
+  };
+  const isLowLoad = (idx: number) => {
+    const l = loads[idx];
+    return (l.weightUtil ?? 0) < 0.5 && (l.volumeUtil ?? 0) < 0.5 && (l.weightUtil !== null || l.volumeUtil !== null);
+  };
+
   return (
     <div className="p-4 space-y-4 overflow-y-auto flex-1 scrollbar-thin w-full overflow-x-hidden">
       <div className="flex items-center justify-between">
@@ -67,23 +94,13 @@ export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({
           <div className="p-3 border rounded-lg bg-card">
             <span className="text-[10px] text-muted-foreground uppercase font-bold">{t('analyticsAvgLoadWeight')}</span>
             <div className="text-lg font-bold mt-1 text-primary">
-              {routes.length > 0 && routingLimits.maxWeight > 0 ? (
-                Math.round((routes.reduce((sum, r) => {
-                  const rOrders = orders.filter(o => r.orderIds.includes(o.id));
-                  return sum + rOrders.reduce((s, o) => s + o.weight, 0);
-                }, 0) / (routes.length * routingLimits.maxWeight)) * 100)
-              ) : 0}%
+              {avgUtil('weightUtil')}%
             </div>
           </div>
           <div className="p-3 border rounded-lg bg-card">
             <span className="text-[10px] text-muted-foreground uppercase font-bold">{t('analyticsAvgLoadVolume')}</span>
             <div className="text-lg font-bold mt-1 text-primary">
-              {routes.length > 0 && routingLimits.maxVolume > 0 ? (
-                Math.round((routes.reduce((sum, r) => {
-                  const rOrders = orders.filter(o => r.orderIds.includes(o.id));
-                  return sum + rOrders.reduce((s, o) => s + o.volume, 0);
-                }, 0) / (routes.length * routingLimits.maxVolume)) * 100)
-              ) : 0}%
+              {avgUtil('volumeUtil')}%
             </div>
           </div>
         </div>
@@ -96,9 +113,8 @@ export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({
           <h4 className="text-[10px] font-bold uppercase text-muted-foreground">{t('analyticsVehicleLoad')}</h4>
           <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
             {routes.map((r, rIdx) => {
-              const rOrders = orders.filter(o => r.orderIds.includes(o.id));
-              const weight = rOrders.reduce((s, o) => s + o.weight, 0);
-              const percent = Math.min(100, Math.round((weight / (routingLimits.maxWeight || 1)) * 100));
+              const { weight, weightUtil } = loads[rIdx];
+              const percent = weightUtil === null ? 0 : Math.round(weightUtil * 100);
               return (
                 <div key={`analytics-load-${r.id || 'route'}-${rIdx}`} className="space-y-1">
                   <div className="flex justify-between text-[11px]">
@@ -108,7 +124,7 @@ export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({
                   <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
                     <div 
                       className="h-full bg-primary transition-all duration-300" 
-                      style={{ width: `${percent}%` }} 
+                      style={{ width: `${Math.min(100, percent)}%` }} 
                     />
                   </div>
                 </div>
@@ -195,27 +211,11 @@ export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({
                 <div className="px-2 py-1 mb-1 bg-destructive/5 rounded text-[9px] text-destructive italic">
                   {t('analyticsLowLoadRec')}
                 </div>
-                {routes.filter(r => {
-                  const rOrders = orders.filter(o => r.orderIds.includes(o.id));
-                  const weight = rOrders.reduce((s, o) => s + o.weight, 0);
-                  const volume = rOrders.reduce((s, o) => s + o.volume, 0);
-                  const weightUtil = routingLimits.maxWeight > 0 ? (weight / routingLimits.maxWeight) : 0;
-                  const volumeUtil = routingLimits.maxVolume > 0 ? (volume / routingLimits.maxVolume) : 0;
-                  return weightUtil < 0.5 && volumeUtil < 0.5;
-                }).length === 0 ? (
+                {routes.filter((_, idx) => isLowLoad(idx)).length === 0 ? (
                   <div className="text-[10px] text-center py-2 text-muted-foreground italic">{t('analyticsAllVehiclesLoaded')}</div>
                 ) : (
-                  routes.filter(r => {
-                    const rOrders = orders.filter(o => r.orderIds.includes(o.id));
-                    const weight = rOrders.reduce((s, o) => s + o.weight, 0);
-                    const volume = rOrders.reduce((s, o) => s + o.volume, 0);
-                    const weightUtil = routingLimits.maxWeight > 0 ? (weight / routingLimits.maxWeight) : 0;
-                    const volumeUtil = routingLimits.maxVolume > 0 ? (volume / routingLimits.maxVolume) : 0;
-                    return weightUtil < 0.5 && volumeUtil < 0.5;
-                  }).map((r, rIdx) => {
-                    const rOrders = orders.filter(o => r.orderIds.includes(o.id));
-                    const weight = rOrders.reduce((s, o) => s + o.weight, 0);
-                    const weightUtil = Math.round((routingLimits.maxWeight > 0 ? (weight / routingLimits.maxWeight) : 0) * 100);
+                  routes.map((r, idx) => ({ r, idx })).filter(({ idx }) => isLowLoad(idx)).map(({ r, idx }, rIdx) => {
+                    const weightUtil = Math.round((loads[idx].weightUtil ?? 0) * 100);
                     return (
                       <div 
                         key={`analytics-lowload-${r.id || 'r'}-${rIdx}`} 

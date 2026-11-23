@@ -44,6 +44,14 @@ export const OptimizationDiffModal: React.FC<OptimizationDiffModalProps> = ({
     ? Math.round(((diff.estimatedCostAfter - diff.estimatedCostBefore) / diff.estimatedCostBefore) * 1000) / 10 
     : 0;
 
+  const deltaText = (delta: number, unit: string) => {
+    const value = Math.round(Math.abs(delta) * 10) / 10;
+    if (value === 0) return t('optDiffNoChange');
+    return delta < 0
+      ? t('optDiffSavings', { value: `${value} ${unit}` })
+      : t('optDiffIncrease', { value: `${value} ${unit}` });
+  };
+
   return (
     <div className="fixed inset-0 z-[3300] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150">
       <motion.div
@@ -83,7 +91,7 @@ export const OptimizationDiffModal: React.FC<OptimizationDiffModalProps> = ({
                 <span className="flex items-center gap-1">
                   <Layers size={13} className="text-emerald-500" /> {t('optDiffMileage')}
                 </span>
-                {diff.distanceDelta !== 0 && (
+                {diff.distanceDelta !== 0 && diff.distanceBefore > 0 && (
                   <span className={cn(
                     "text-[10px] font-bold px-1.5 py-0.5 rounded flex items-center gap-0.5",
                     diff.distanceDelta < 0 ? "bg-emerald-500/10 text-emerald-600" : "bg-rose-500/10 text-rose-600"
@@ -99,7 +107,7 @@ export const OptimizationDiffModal: React.FC<OptimizationDiffModalProps> = ({
                 <span className="text-xl font-black text-foreground">{diff.distanceAfter} <span className="text-xs font-normal">{t('unitKm')}</span></span>
               </div>
               <div className="text-[10px] text-muted-foreground">
-                {t('optDiffSavings', { value: diff.distanceDelta < 0 ? `${Math.abs(diff.distanceDelta)} ${t('unitKm')}` : `${diff.distanceDelta} ${t('unitKm')}` })}
+                {deltaText(diff.distanceDelta, t('unitKm'))}
               </div>
             </div>
 
@@ -109,7 +117,7 @@ export const OptimizationDiffModal: React.FC<OptimizationDiffModalProps> = ({
                 <span className="flex items-center gap-1">
                   <DollarSign size={13} className="text-amber-500" /> {t('optDiffCost')}
                 </span>
-                {diff.estimatedCostDelta !== 0 && (
+                {diff.estimatedCostDelta !== 0 && diff.estimatedCostBefore > 0 && (
                   <span className={cn(
                     "text-[10px] font-bold px-1.5 py-0.5 rounded flex items-center gap-0.5",
                     diff.estimatedCostDelta < 0 ? "bg-emerald-500/10 text-emerald-600" : "bg-rose-500/10 text-rose-600"
@@ -124,7 +132,7 @@ export const OptimizationDiffModal: React.FC<OptimizationDiffModalProps> = ({
                 <span className="text-xl font-black text-foreground">{diff.estimatedCostAfter} <span className="text-xs font-normal">₼</span></span>
               </div>
               <div className="text-[10px] text-muted-foreground">
-                {t('optDiffSavings', { value: diff.estimatedCostDelta < 0 ? `${Math.abs(diff.estimatedCostDelta)} ₼` : `${diff.estimatedCostDelta} ₼` })}
+                {deltaText(diff.estimatedCostDelta, '₼')}
               </div>
             </div>
 

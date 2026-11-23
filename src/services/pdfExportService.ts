@@ -2,6 +2,7 @@ import { Route, Order, TruckType } from '../types';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { calculateRouteLegs } from './distanceHelper';
+import { toLocalDateStr } from '../lib/utils';
 
 export interface PdfExportOptions {
   routes: Route[];
@@ -175,7 +176,7 @@ export function exportRoutesToPdf({ routes, orders, truckTypes = [], title = 'О
       );
     }
 
-    const filename = `Маршруты_${new Date().toISOString().slice(0, 10)}.pdf`;
+    const filename = `Маршруты_${toLocalDateStr()}.pdf`;
     doc.save(filename);
     return true;
   } catch {

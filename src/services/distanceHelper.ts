@@ -317,8 +317,9 @@ export function applyNavDetailsToRoute(
  */
 export function formatDurationMinutes(minutes?: number): string {
   if (!minutes || minutes <= 0) return '—';
-  const hours = Math.floor(minutes / 60);
-  const mins = Math.round(minutes % 60);
+  const total = Math.round(minutes); // round first so 59.6 min doesn't become "0 ч 60 мин"
+  const hours = Math.floor(total / 60);
+  const mins = total % 60;
   if (hours > 0) {
     return `${hours} ч ${mins > 0 ? `${mins} мин` : ''}`.trim();
   }

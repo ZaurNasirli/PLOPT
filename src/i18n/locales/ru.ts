@@ -418,6 +418,8 @@ export const ru = {
   optDiffMileage: 'Пробег (км)',
   optDiffCost: 'Стоимость',
   optDiffSavings: 'Экономия: {value}',
+  optDiffIncrease: 'Увеличение: +{value}',
+  optDiffNoChange: 'Без изменений',
   optDiffRoutes: 'Маршруты',
   optDiffRoutesUsed: 'Задействовано авто',
   optDiffVolumeLoad: 'Загрузка кузова',

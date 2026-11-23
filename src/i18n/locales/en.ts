@@ -418,6 +418,8 @@ export const en = {
   optDiffMileage: 'Mileage (km)',
   optDiffCost: 'Cost',
   optDiffSavings: 'Savings: {value}',
+  optDiffIncrease: 'Increase: +{value}',
+  optDiffNoChange: 'No change',
   optDiffRoutes: 'Routes',
   optDiffRoutesUsed: 'Vehicles dispatched',
   optDiffVolumeLoad: 'Volume Load',

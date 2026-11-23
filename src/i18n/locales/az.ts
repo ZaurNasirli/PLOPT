@@ -418,6 +418,8 @@ export const az = {
   optDiffMileage: 'Yürüş (km)',
   optDiffCost: 'Dəyər',
   optDiffSavings: 'Qənaət: {value}',
+  optDiffIncrease: 'Artım: +{value}',
+  optDiffNoChange: 'Dəyişiklik yoxdur',
   optDiffRoutes: 'Marşrutlar',
   optDiffRoutesUsed: 'İstifadə olunan avto',
   optDiffVolumeLoad: 'Kuzov doluluğu',
