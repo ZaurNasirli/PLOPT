@@ -1,0 +1,10 @@
+{
+  "name": "PL/OPT",
+  "description": "Система оптимизации и управления логистическими маршрутами и заказами с интерактивной картой и экспортом в PDF",
+  "requestFramePermissions": [
+    "geolocation"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>PL/OPT</title>
+    <meta name="description" content="Система оптимизации и управления логистическими маршрутами и заказами с интерактивной картой и экспортом в PDF" />
+    <meta property="og:title" content="PL/OPT" />
+    <meta property="og:description" content="Система оптимизации и управления логистическими маршрутами и заказами с интерактивной картой и экспортом в PDF" />
+  </head>
+  <body style="margin:0;background-color:#0f172a;color:#f8fafc;font-family:system-ui,-apple-system,sans-serif;">
+    <div id="root">
+      <div id="app-boot-loader" style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;box-sizing:border-box;">
+        <div style="text-align:center;max-width:420px;">
+          <div style="font-size:18px;font-weight:700;letter-spacing:0.04em;color:#f8fafc;margin-bottom:8px;">PL/OPT</div>
+          <div id="app-boot-status" style="font-size:13px;color:#94a3b8;">Загрузка системы логистики...</div>
+        </div>
+      </div>
+    </div>
+    <script>
+      (function () {
+        window.__APP_MOUNTED__ = false;
+        function showBootError(msg) {
+          if (window.__APP_MOUNTED__) return;
+          var root = document.getElementById('root');
+          if (!root) return;
+          root.innerHTML =
+            '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0f172a;color:#f8fafc;padding:24px;box-sizing:border-box;font-family:system-ui,-apple-system,sans-serif;">' +
+              '<div style="max-width:440px;width:100%;background:#1e293b;border:1px solid #334155;border-radius:16px;padding:24px;box-shadow:0 10px 25px rgba(0,0,0,0.4);">' +
+                '<h2 style="margin:0 0 12px 0;font-size:16px;font-weight:700;color:#ffffff;">Ошибка запуска приложения</h2>' +
+                '<pre style="margin:0 0 16px 0;padding:12px;background:#090d16;border-radius:8px;font-size:11px;color:#cbd5e1;white-space:pre-wrap;word-break:break-word;overflow-x:auto;">' +
+                  String(msg || 'Не удалось инициализировать клиентский модуль') +
+                '</pre>' +
+                '<div style="display:flex;gap:10px;">' +
+                  '<button onclick="window.location.reload()" style="flex:1;padding:10px 14px;border:none;border-radius:10px;background:#2563eb;color:#ffffff;font-size:12px;font-weight:700;cursor:pointer;">Перезагрузить</button>' +
+                  '<button onclick="try{localStorage.clear();sessionStorage.clear();}catch(e){}window.location.reload();" style="flex:1;padding:10px 14px;border:1px solid #475569;border-radius:10px;background:#334155;color:#e2e8f0;font-size:12px;font-weight:700;cursor:pointer;">Сбросить кэш</button>' +
+                '</div>' +
+              '</div>' +
+            '</div>';
+        }
+        window.addEventListener('error', function (event) {
+          if (!window.__APP_MOUNTED__) {
+            var detail = (event && (event.message || (event.error && event.error.message))) || 'Ошибка загрузки скрипта';
+            showBootError(detail);
+          }
+        }, true);
+        window.addEventListener('unhandledrejection', function (event) {
+          if (!window.__APP_MOUNTED__) {
+            var reason = event && event.reason;
+            var detail = (reason && (reason.message || String(reason))) || 'Необработанная ошибка инициализации';
+            showBootError(detail);
+          }
+        });
+      })();
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
