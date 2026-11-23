@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   PieChart, Pie, Cell, LineChart, Line, AreaChart, Area, ScatterChart, Scatter
@@ -13,8 +13,10 @@ import {
 import * as XLSX from 'xlsx';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
-import { Order, Route, StreetHighlight, StreetGroup, Store, RouteVersion, TruckType, Zone, StoreMarkerLabelMode, StoreMarkerLabelOption } from './types';
-import { RotaPage } from './components/RotaPage';
+import { Order, Route, StreetHighlight, StreetGroup, Store, RouteVersion, TruckType, Zone, StoreMarkerLabelMode, StoreMarkerLabelOption, Driver, Shift } from './types';
+import { RotaPage, INITIAL_DRIVERS, INITIAL_SHIFTS } from './components/RotaPage';
+import { useCloudSync } from './hooks/useCloudSync';
+import { CloudSyncButton } from './components/common/CloudSyncButton';
 import { AlgorithmSelector } from './components/AlgorithmSelector';
 import { BulkActionsMenu } from './components/BulkActionsMenu';
 import { RouterModal } from './components/RouterModal';
@@ -750,6 +752,68 @@ export default function App() {
   useEffect(() => {
     safeSetStorageItem('routeVersions', JSON.stringify(routeVersions));
   }, [routeVersions]);
+
+  // Rota (drivers & shifts) — kept here so it is persisted even while the Rota page is closed
+  const [drivers, setDrivers] = useState<Driver[]>(() => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem('rota_drivers') || 'null');
+      return Array.isArray(parsed) ? parsed : INITIAL_DRIVERS;
+    } catch {
+      return INITIAL_DRIVERS;
+    }
+  });
+  const [shifts, setShifts] = useState<Shift[]>(() => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem('rota_shifts') || 'null');
+      return Array.isArray(parsed) ? parsed : INITIAL_SHIFTS;
+    } catch {
+      return INITIAL_SHIFTS;
+    }
+  });
+  useEffect(() => {
+    safeSetStorageItem('rota_drivers', JSON.stringify(drivers));
+  }, [drivers]);
+  useEffect(() => {
+    safeSetStorageItem('rota_shifts', JSON.stringify(shifts));
+  }, [shifts]);
+
+  // --- Cloud database (Firebase Firestore) ---
+  // Everything the user works with is synced for the signed-in account; localStorage stays as offline copy.
+  const cloudValues = useMemo(() => ({
+    orders,
+    routes: sanitizeRoutesForStorage(routes), // road geometry is heavy and recalculated on demand
+    routeVersions,
+    streetHighlights,
+    streetGroups,
+    drivers,
+    shifts,
+    settings: { routingLimits, streetLineWidth, streetLineOpacity }
+  }), [orders, routes, routeVersions, streetHighlights, streetGroups, drivers, shifts, routingLimits, streetLineWidth, streetLineOpacity]);
+
+  const applyCloudData = useCallback((data: Record<string, unknown>) => {
+    if (Array.isArray(data.orders)) setOrders(data.orders as Order[]);
+    if (Array.isArray(data.routes)) setRoutes(data.routes as Route[]);
+    if (Array.isArray(data.routeVersions)) setRouteVersions(data.routeVersions as RouteVersion[]);
+    if (Array.isArray(data.streetHighlights)) setStreetHighlights(data.streetHighlights as StreetHighlight[]);
+    if (Array.isArray(data.streetGroups)) setStreetGroups(data.streetGroups as StreetGroup[]);
+    if (Array.isArray(data.drivers)) setDrivers(data.drivers as Driver[]);
+    if (Array.isArray(data.shifts)) setShifts(data.shifts as Shift[]);
+    const settings = data.settings as { routingLimits?: Partial<RoutingLimits>; streetLineWidth?: number; streetLineOpacity?: number } | undefined;
+    if (settings?.routingLimits) {
+      setRoutingLimits(prev => ({
+        ...prev,
+        ...settings.routingLimits,
+        truckTypes: settings.routingLimits?.truckTypes?.length ? settings.routingLimits.truckTypes : prev.truckTypes
+      }));
+    }
+    if (typeof settings?.streetLineWidth === 'number') setStreetLineWidth(settings.streetLineWidth);
+    if (typeof settings?.streetLineOpacity === 'number') setStreetLineOpacity(settings.streetLineOpacity);
+    // Selections may point to ids that no longer exist
+    setSelectedOrderIds([]);
+    setSelectedRouteId(null);
+  }, []);
+
+  const cloud = useCloudSync(cloudValues, applyCloudData);
   const [currentPage, setCurrentPage] = useState<'home' | 'routing' | 'rota'>('routing');
   const [isTopCollapsed, setIsTopCollapsed] = useState(false);
   const [showFullAnalytics, setShowFullAnalytics] = useState(false);
@@ -2673,6 +2737,7 @@ export default function App() {
     const isSmallScreen = typeof window !== 'undefined' && window.innerWidth < 768;
     const mobileContent = (
       <AndroidMobileLayout
+        cloudSlot={<CloudSyncButton cloud={cloud} variant="mobile" />}
         orders={orders}
         filteredOrders={filteredOrders}
         stores={stores}
@@ -2902,6 +2967,8 @@ export default function App() {
               <Save size={15} className={cn("transition-colors", isAutosaving ? "text-amber-500 animate-pulse" : "text-emerald-500")} />
               <span className={cn("absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full ring-1 ring-card", isAutosaving ? "bg-amber-500 animate-ping" : "bg-emerald-500")} />
             </div>
+
+            <CloudSyncButton cloud={cloud} />
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3 xl:gap-4 shrink min-w-0">
@@ -2967,7 +3034,15 @@ export default function App() {
         )}
 
         {currentPage === 'rota' && (
-          <RotaPage routes={routes} truckTypes={routingLimits.truckTypes} orders={orders} />
+          <RotaPage
+            routes={routes}
+            truckTypes={routingLimits.truckTypes}
+            orders={orders}
+            drivers={drivers}
+            setDrivers={setDrivers}
+            shifts={shifts}
+            setShifts={setShifts}
+          />
         )}
 
         {currentPage === 'routing' && (

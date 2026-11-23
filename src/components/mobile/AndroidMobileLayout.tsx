@@ -48,6 +48,7 @@ import { cn } from '../../lib/utils';
 export type MobileTab = 'map' | 'routes' | 'orders' | 'dispatch';
 
 interface AndroidMobileLayoutProps {
+  cloudSlot?: React.ReactNode;
   orders: Order[];
   filteredOrders: Order[];
   stores: Store[];
@@ -107,6 +108,7 @@ export const openExternalNavigation = (lat: number, lng: number, label?: string)
 };
 
 export const AndroidMobileLayout: React.FC<AndroidMobileLayoutProps> = ({
+  cloudSlot,
   orders,
   filteredOrders,
   stores,
@@ -225,6 +227,9 @@ export const AndroidMobileLayout: React.FC<AndroidMobileLayoutProps> = ({
 
           {/* Right: Quick Actions */}
           <div className="flex items-center gap-1.5">
+            {/* Cloud database status / sign-in */}
+            {cloudSlot}
+
             {/* Quick Undo */}
             <button
               type="button"

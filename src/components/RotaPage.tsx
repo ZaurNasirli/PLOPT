@@ -13,10 +13,14 @@ interface RotaPageProps {
   routes: Route[];
   truckTypes: TruckType[];
   orders: any[];
+  drivers: Driver[];
+  setDrivers: React.Dispatch<React.SetStateAction<Driver[]>>;
+  shifts: Shift[];
+  setShifts: React.Dispatch<React.SetStateAction<Shift[]>>;
 }
 
 // Initial mock data
-const INITIAL_DRIVERS: Driver[] = [
+export const INITIAL_DRIVERS: Driver[] = [
   { id: 'drv-1', name: 'Иван Иванов', phone: '+7 (999) 111-22-33', truckTypeName: 'Газель 1.5т', licensePlate: 'А123БВ77', status: 'active', rating: 4.9, shiftsCount: 24 },
   { id: 'drv-2', name: 'Алексей Смирнов', phone: '+7 (999) 222-33-44', truckTypeName: 'Фургон 3т', licensePlate: 'Е456КХ99', status: 'on-shift', rating: 4.8, shiftsCount: 18 },
   { id: 'drv-3', name: 'Дмитрий Кузнецов', phone: '+7 (999) 333-44-55', truckTypeName: 'Газон 5т', licensePlate: 'О789РМ177', status: 'off-duty', rating: 4.7, shiftsCount: 30 },
@@ -25,32 +29,15 @@ const INITIAL_DRIVERS: Driver[] = [
   { id: 'drv-6', name: 'Владимир Новиков', phone: '+7 (999) 666-77-88', truckTypeName: 'Газель 1.5т', licensePlate: 'К987СР77', status: 'active', rating: 4.85, shiftsCount: 15 },
 ];
 
-const INITIAL_SHIFTS: Shift[] = [
+export const INITIAL_SHIFTS: Shift[] = [
   { id: 'sh-1', driverId: 'drv-1', date: toLocalDateStr(), type: 'morning' },
   { id: 'sh-2', driverId: 'drv-2', date: toLocalDateStr(), type: 'full-day' },
   { id: 'sh-3', driverId: 'drv-4', date: toLocalDateStr(), type: 'morning' },
 ];
 
-export const RotaPage: React.FC<RotaPageProps> = ({ routes, truckTypes, orders }) => {
+export const RotaPage: React.FC<RotaPageProps> = ({ routes, truckTypes, orders, drivers, setDrivers, shifts, setShifts }) => {
   const { t } = useTranslation();
-  // Persistence state
-  const [drivers, setDrivers] = useState<Driver[]>(() => {
-    const saved = localStorage.getItem('rota_drivers');
-    return saved ? JSON.parse(saved) : INITIAL_DRIVERS;
-  });
-
-  const [shifts, setShifts] = useState<Shift[]>(() => {
-    const saved = localStorage.getItem('rota_shifts');
-    return saved ? JSON.parse(saved) : INITIAL_SHIFTS;
-  });
-
-  useEffect(() => {
-    localStorage.setItem('rota_drivers', JSON.stringify(drivers));
-  }, [drivers]);
-
-  useEffect(() => {
-    localStorage.setItem('rota_shifts', JSON.stringify(shifts));
-  }, [shifts]);
+  // Drivers & shifts live in App so they are persisted (localStorage + cloud) even when this page is closed
 
   const [activeTab, setActiveTab] = useState<'calendar' | 'drivers' | 'matching' | 'stats'>('calendar');
   const [searchQuery, setSearchQuery] = useState('');
