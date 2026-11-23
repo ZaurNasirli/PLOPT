@@ -161,6 +161,9 @@ export const AndroidMobileLayout: React.FC<AndroidMobileLayoutProps> = ({
     return routes.find(r => r.id === selectedRouteId) || null;
   }, [routes, selectedRouteId]);
 
+  const getTruckName = (route: Route, fallback: string) =>
+    truckTypes.find(t => t.id === route.truckTypeId)?.name || fallback;
+
   const activeRouteOrders = useMemo(() => {
     if (!activeRoute || !activeRoute.orderIds) return [];
     const map = new Map((orders || []).map(o => [o.id, o]));
@@ -441,7 +444,7 @@ export const AndroidMobileLayout: React.FC<AndroidMobileLayoutProps> = ({
                     <div className="font-bold text-xs truncate text-foreground flex items-center gap-1.5">
                       <span>{activeRoute.name}</span>
                       <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-primary/10 text-primary font-mono font-semibold">
-                        {activeRoute.truckType || 'Грузовик'}
+                        {getTruckName(activeRoute, 'Грузовик')}
                       </span>
                     </div>
                     <div className="text-[10px] text-muted-foreground truncate">
@@ -476,7 +479,7 @@ export const AndroidMobileLayout: React.FC<AndroidMobileLayoutProps> = ({
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => openExternalNavigation(activeStoreDetail.location.lat, activeStoreDetail.location.lng, activeStoreDetail.name)}
+                      onClick={() => openExternalNavigation(activeStoreDetail.lat, activeStoreDetail.lng, activeStoreDetail.name)}
                       className="h-8 px-2.5 text-xs gap-1.5 border-primary/30 text-primary hover:bg-primary/10"
                     >
                       <ExternalLink size={13} />
@@ -549,7 +552,7 @@ export const AndroidMobileLayout: React.FC<AndroidMobileLayoutProps> = ({
                   <div>
                     <h4 className="font-bold text-sm text-foreground">{activeRoute.name}</h4>
                     <p className="text-xs text-muted-foreground">
-                      {activeRoute.driverName || 'Водитель не назначен'} · {activeRoute.truckType || 'Грузовик'}
+                      {activeRoute.driverName || 'Водитель не назначен'} · {getTruckName(activeRoute, 'Грузовик')}
                     </p>
                   </div>
                   <Button
@@ -653,7 +656,7 @@ export const AndroidMobileLayout: React.FC<AndroidMobileLayoutProps> = ({
                         <div className="min-w-0">
                           <div className="font-bold text-foreground truncate">{r.name}</div>
                           <div className="text-[10px] text-muted-foreground truncate">
-                            {r.orderIds?.length || 0} точек · {roundUp(r.distance || 0)} км · {r.truckType || 'Авто'}
+                            {r.orderIds?.length || 0} точек · {roundUp(r.distance || 0)} км · {getTruckName(r, 'Авто')}
                           </div>
                         </div>
                       </div>
@@ -703,7 +706,7 @@ export const AndroidMobileLayout: React.FC<AndroidMobileLayoutProps> = ({
                 const rOrders = (orders || []).filter(o => route.orderIds?.includes(o.id));
                 const totalVol = rOrders.reduce((s, o) => s + (o.volume || 0), 0);
                 const totalWt = rOrders.reduce((s, o) => s + (o.weight || 0), 0);
-                const truckLimit = truckTypes.find(t => t.id === route.truckTypeId || t.name === route.truckType);
+                const truckLimit = truckTypes.find(t => t.id === route.truckTypeId);
                 const maxVol = truckLimit?.maxVolume || 10;
                 const maxWt = truckLimit?.maxWeight || 1500;
                 const volPercent = Math.min(100, Math.round((totalVol / maxVol) * 100));
@@ -736,7 +739,7 @@ export const AndroidMobileLayout: React.FC<AndroidMobileLayoutProps> = ({
                             )}
                           </div>
                           <div className="text-xs text-muted-foreground">
-                            {route.driverName || 'Водитель не назначен'} · {route.truckType || 'Грузовик'}
+                            {route.driverName || 'Водитель не назначен'} · {getTruckName(route, 'Грузовик')}
                           </div>
                         </div>
                       </div>
@@ -929,7 +932,7 @@ export const AndroidMobileLayout: React.FC<AndroidMobileLayoutProps> = ({
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
-                        openExternalNavigation(store.location.lat, store.location.lng, store.name);
+                        openExternalNavigation(store.lat, store.lng, store.name);
                       }}
                       className="text-primary hover:underline font-semibold flex items-center gap-1 text-[11px]"
                     >

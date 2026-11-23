@@ -85,7 +85,7 @@ export const WhatIfModal: React.FC<WhatIfModalProps> = ({
     setIsRunning(true);
     setScenarios([]);
     try {
-      const activeOrders = orders.filter(o => o.status !== 'delivered');
+      const activeOrders = orders;
       if (activeOrders.length === 0) {
         setIsRunning(false);
         return;

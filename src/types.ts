@@ -46,6 +46,8 @@ export interface Store {
   focusTrigger?: number;
   warehouseTypes?: string[];
   warehouseType?: string;
+  phone?: string;
+  address?: string;
 }
 
 export interface Zone {
@@ -101,6 +103,7 @@ export interface Route {
   inefficientReason?: string;
   description?: string;
   aiExplanation?: string;
+  driverName?: string;
 }
 
 export interface StreetGroup {

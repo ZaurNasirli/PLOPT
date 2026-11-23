@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   PieChart, Pie, Cell, LineChart, Line, AreaChart, Area, ScatterChart, Scatter
@@ -382,10 +382,16 @@ export default function App() {
   });
   const [isAutosaving, setIsAutosaving] = useState(false);
 
+  // Latest state for the autosave timer (the interval must not be reset on every change,
+  // otherwise it never fires while the user keeps editing)
+  const autosaveStateRef = useRef({ orders, routes });
+  autosaveStateRef.current = { orders, routes };
+
   // Autosave orders and routes state every 30 seconds for protection against accidental tab closure
   useEffect(() => {
     const saveStateToStorage = () => {
       try {
+        const { orders, routes } = autosaveStateRef.current;
         const sanitizedRoutes = sanitizeRoutesForStorage(routes);
         safeSetStorageItem('autosave_orders_v1', JSON.stringify(orders));
         safeSetStorageItem('autosave_routes_v1', JSON.stringify(sanitizedRoutes));
@@ -405,6 +411,7 @@ export default function App() {
     // Save beforeunload to guarantee persistence when tab is closed
     const handleBeforeUnload = () => {
       try {
+        const { orders, routes } = autosaveStateRef.current;
         const sanitizedRoutes = sanitizeRoutesForStorage(routes);
         safeSetStorageItem('autosave_orders_v1', JSON.stringify(orders));
         safeSetStorageItem('autosave_routes_v1', JSON.stringify(sanitizedRoutes));
@@ -418,7 +425,7 @@ export default function App() {
       clearInterval(interval);
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };
-  }, [orders, routes]);
+  }, []);
 
   // Global Ctrl+Z / Cmd+Z Undo hotkey
   useEffect(() => {
@@ -688,10 +695,10 @@ export default function App() {
           maxCustomers: parsed.maxCustomers || 0,
           maxRegions: parsed.maxRegions || 0,
           truckTypes: parsed.truckTypes && parsed.truckTypes.length > 0 ? parsed.truckTypes : DEFAULT_TRUCK_TYPES,
-          costPerRoute: parsed.costPerRoute || 50,
-          costPerKm: parsed.costPerKm || 2,
-          costPerStore: parsed.costPerStore || 5,
-          costPerKg: parsed.costPerKg || 0.1,
+          costPerRoute: parsed.costPerRoute ?? 50,
+          costPerKm: parsed.costPerKm ?? 2,
+          costPerStore: parsed.costPerStore ?? 5,
+          costPerKg: parsed.costPerKg ?? 0.1,
           allowCombineTimeSlots: parsed.allowCombineTimeSlots !== undefined ? parsed.allowCombineTimeSlots : false,
           allowCombineDates: parsed.allowCombineDates !== undefined ? parsed.allowCombineDates : false,
           optimizationMode: parsed.optimizationMode || 'balanced',
@@ -1211,10 +1218,10 @@ export default function App() {
       if (filteredOrders.length > 0) {
         availableOrders = filteredOrders;
       } else {
-        const allMatchingOrders = orders.filter(o => filteredStoreNames.has(o.customerName) && o.status !== 'delivered');
+        const allMatchingOrders = orders.filter(o => filteredStoreNames.has(o.customerName));
         availableOrders = allMatchingOrders.length > 0
           ? allMatchingOrders
-          : orders.filter(o => o.status !== 'delivered');
+          : orders;
       }
     }
 
@@ -1542,13 +1549,24 @@ export default function App() {
 
     const reader = new FileReader();
     reader.onload = (evt) => {
-      const bstr = evt.target?.result;
-      const wb = XLSX.read(bstr, { type: 'binary' });
-      const wsname = wb.SheetNames[0];
-      const ws = wb.Sheets[wsname];
-      
-      const headers = XLSX.utils.sheet_to_json(ws, { header: 1 })[0] as string[];
-      const rawData = XLSX.utils.sheet_to_json(ws) as any[];
+      let headers: string[] = [];
+      let rawData: any[] = [];
+      try {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const headerRow = ws ? (XLSX.utils.sheet_to_json(ws, { header: 1 })[0] as any[] | undefined) : undefined;
+        headers = Array.from(headerRow || [], h => (h === undefined || h === null ? '' : String(h))).filter(h => h.trim() !== '');
+        rawData = ws ? (XLSX.utils.sheet_to_json(ws) as any[]) : [];
+      } catch {
+        setSaveNotification('Не удалось прочитать файл Excel. Проверьте формат файла (.xlsx, .xls, .csv).');
+        return;
+      }
+      if (headers.length === 0 || rawData.length === 0) {
+        setSaveNotification('Файл Excel пустой или в первой строке нет заголовков столбцов.');
+        return;
+      }
       // Filter out completely blank rows
       const data = rawData.filter(row => {
         if (!row || typeof row !== 'object') return false;
@@ -1561,7 +1579,7 @@ export default function App() {
       REQUIRED_FIELDS.forEach(field => {
         const foundHeader = headers.find(h => 
           String(h).toLowerCase().trim() === field.label.toLowerCase().trim() || 
-          field.synonyms.includes(String(h).toLowerCase().trim())
+          (field.synonyms || []).includes(String(h).toLowerCase().trim())
         );
         if (foundHeader) {
           initialMapping[field.key] = String(foundHeader);
@@ -1917,6 +1935,18 @@ export default function App() {
     XLSX.utils.book_append_sheet(wb, wsStops, "Точки и остановки");
 
     // Other versions (если есть сохраненные версии)
+    // Excel sheet names: max 31 chars, unique, without : \ / ? * [ ]
+    const usedSheetNames = new Set(wb.SheetNames.map(n => n.toLowerCase()));
+    const makeSheetName = (raw: string) => {
+      const base = (raw || 'Сценарий').replace(/[:\\/?*[\]]/g, ' ').trim().slice(0, 31) || 'Сценарий';
+      let name = base;
+      for (let i = 2; usedSheetNames.has(name.toLowerCase()); i++) {
+        const suffix = ` (${i})`;
+        name = base.slice(0, 31 - suffix.length) + suffix;
+      }
+      usedSheetNames.add(name.toLowerCase());
+      return name;
+    };
     (routeVersions || []).forEach(v => {
       const vData = (v.orders || []).map(o => {
         const route = (v.routes || []).find(r => r.id === o.routeId);
@@ -1937,7 +1967,7 @@ export default function App() {
         };
       });
       const vWs = XLSX.utils.json_to_sheet(vData);
-      XLSX.utils.book_append_sheet(wb, vWs, v.name.slice(0, 30));
+      XLSX.utils.book_append_sheet(wb, vWs, makeSheetName(v.name));
     });
 
     XLSX.writeFile(wb, "routes_export.xlsx");
@@ -1972,9 +2002,7 @@ export default function App() {
             existing.warehouseTypes.push(order.warehouseType);
           }
         }
-        if (!existing.days.some(d => order.days.includes(d))) {
-          existing.days = Array.from(new Set([...existing.days, ...order.days]));
-        }
+        existing.days = Array.from(new Set([...existing.days, ...order.days])).sort((a, b) => a - b);
         if (!existing.timeSlots.includes(order.timeSlot)) {
           existing.timeSlots.push(order.timeSlot);
         }
@@ -2079,9 +2107,7 @@ export default function App() {
             existing.warehouseTypes.push(order.warehouseType);
           }
         }
-        if (!existing.days.some(d => order.days.includes(d))) {
-          existing.days = Array.from(new Set([...existing.days, ...order.days]));
-        }
+        existing.days = Array.from(new Set([...existing.days, ...order.days])).sort((a, b) => a - b);
         if (!existing.timeSlots.includes(order.timeSlot)) {
           existing.timeSlots.push(order.timeSlot);
         }
@@ -2137,7 +2163,7 @@ export default function App() {
     return {
       total: { orders: orders.length, customers: stores.length, weight: totalWeight, volume: totalVolume, satir: totalSatir },
       inRoute: { orders: inRouteOrders.length, customers: new Set(inRouteOrders.map(o => o.customerName)).size, weight: inRouteWeight, volume: inRouteVolume, satir: inRouteSatir, routeCount: routes.length, distance: totalDistance },
-      notInRoute: { orders: orders.length - inRouteOrders.length, customers: stores.length - new Set(inRouteOrders.map(o => o.customerName)).size, weight: totalWeight - inRouteWeight, volume: totalVolume - inRouteVolume, satir: totalSatir - inRouteSatir }
+      notInRoute: { orders: orders.length - inRouteOrders.length, customers: new Set(orders.filter(o => o.status !== 'in-route').map(o => o.customerName)).size, weight: totalWeight - inRouteWeight, volume: totalVolume - inRouteVolume, satir: totalSatir - inRouteSatir }
     };
   }, [orders, stores, routes]);
 
@@ -2184,13 +2210,18 @@ export default function App() {
     setNewStreetName('');
   };
 
-  const handleCreateRoute = () => {
-    if (selectedOrderIds.length === 0) return;
+  const handleCreateRoute = (explicitOrderIds?: string[]) => {
+    // Explicit ids are passed by callers that cannot wait for a selection state update (e.g. streets panel)
+    const orderMapById = new Map(orders.map(o => [o.id, o]));
+    const idsForRoute = Array.from(new Set(Array.isArray(explicitOrderIds) ? explicitOrderIds : selectedOrderIds))
+      .filter(id => orderMapById.has(id));
+    if (idsForRoute.length === 0) return;
+    const idSet = new Set(idsForRoute);
     const prevRoutes = [...routes];
     const prevOrders = [...orders];
     const colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
     const randomColor = colors[Math.floor(Math.random() * colors.length)];
-    const routeOrders = orders.filter(o => selectedOrderIds.includes(o.id));
+    const routeOrders = idsForRoute.map(id => orderMapById.get(id)!);
     const newRouteId = Date.now().toString();
 
     // Calculate initial straight line distance
@@ -2213,21 +2244,32 @@ export default function App() {
       id: newRouteId,
       name: `Маршрут ${routes.length + 1}`,
       color: randomColor,
-      orderIds: [...selectedOrderIds],
+      orderIds: [...idsForRoute],
       isVisible: true,
       distance: dist,
       isRealRoad: false
     };
-    
-    const nextRoutes = [...prevRoutes, newRoute];
-    const nextOrders = prevOrders.map(o => selectedOrderIds.includes(o.id) ? { ...o, status: 'in-route' as const, routeId: newRoute.id } : o);
+
+    // Orders can belong to only one route: detach them from their previous routes
+    const affectedRoutes = prevRoutes.filter(r => r.orderIds.some(id => idSet.has(id)));
+    const nextRoutes = [
+      ...prevRoutes
+        .map(r => affectedRoutes.includes(r) ? { ...r, orderIds: r.orderIds.filter(id => !idSet.has(id)) } : r)
+        .filter(r => r.orderIds.length > 0),
+      newRoute
+    ];
+    const nextOrders = prevOrders.map(o => idSet.has(o.id) ? { ...o, status: 'in-route' as const, routeId: newRoute.id } : o);
     setRoutes(nextRoutes);
     setOrders(nextOrders);
     setSelectedOrderIds([]);
+    affectedRoutes.forEach(r => {
+      const remainingIds = r.orderIds.filter(id => !idSet.has(id));
+      if (remainingIds.length > 0) recalculateRouteRoundTrip(r.id, remainingIds);
+    });
 
     routeHistoryService.recordChange({
       action: 'Создание маршрута',
-      description: `Создан "${newRoute.name}" с ${selectedOrderIds.length} заказами`,
+      description: `Создан "${newRoute.name}" с ${idsForRoute.length} заказами`,
       routesBefore: prevRoutes,
       routesAfter: nextRoutes,
       ordersBefore: prevOrders,
@@ -2297,17 +2339,26 @@ export default function App() {
     const routeOrders = mergedOrderIds.map(id => orderMap.get(id)).filter((o): o is Order => Boolean(o));
     const straightKm = calculateStraightRouteDistance(routeOrders);
 
-    const nextRoutes = routes.map(r => r.id === targetRouteId ? {
-      ...r,
-      orderIds: mergedOrderIds,
-      distance: straightKm,
-      straightDistanceKm: straightKm
-    } : r);
-    const nextOrders = orders.map(o => orderIds.includes(o.id) ? { ...o, status: 'in-route' as const, routeId: targetRouteId } : o);
+    // Orders can belong to only one route: detach them from any other route first
+    const moveSet = new Set(orderIds);
+    const otherAffectedRoutes = routes.filter(r => r.id !== targetRouteId && r.orderIds.some(id => moveSet.has(id)));
+    const nextRoutes = routes
+      .map(r => {
+        if (r.id === targetRouteId) {
+          return { ...r, orderIds: mergedOrderIds, distance: straightKm, straightDistanceKm: straightKm };
+        }
+        return otherAffectedRoutes.includes(r) ? { ...r, orderIds: r.orderIds.filter(id => !moveSet.has(id)) } : r;
+      })
+      .filter(r => r.id === targetRouteId || r.orderIds.length > 0);
+    const nextOrders = orders.map(o => moveSet.has(o.id) ? { ...o, status: 'in-route' as const, routeId: targetRouteId } : o);
 
     setRoutes(nextRoutes);
     setOrders(nextOrders);
     setSelectedOrderIds([]);
+    otherAffectedRoutes.forEach(r => {
+      const remainingIds = r.orderIds.filter(id => !moveSet.has(id));
+      if (remainingIds.length > 0) recalculateRouteRoundTrip(r.id, remainingIds);
+    });
     setSaveNotification(`Добавлено ${orderIds.length} заказов в маршрут "${targetRoute.name}"`);
     setTimeout(() => setSaveNotification(null), 3500);
 
@@ -2485,7 +2536,12 @@ export default function App() {
     const prevRoutes = [...routes];
     const prevOrders = [...orders];
     const nextRoutes = routes.filter(r => r.isImported);
-    const nextOrders = orders.map(o => !o.isImportedRoute ? { ...o, status: 'not-in-route' as const, routeId: undefined } : o);
+    // Keep assignments only for orders that still belong to a remaining (imported) route
+    const keptOrderRoute = new Map<string, string>();
+    nextRoutes.forEach(r => r.orderIds.forEach(id => keptOrderRoute.set(id, r.id)));
+    const nextOrders = orders.map(o => keptOrderRoute.has(o.id)
+      ? { ...o, status: 'in-route' as const, routeId: keptOrderRoute.get(o.id) }
+      : { ...o, status: 'not-in-route' as const, routeId: undefined });
     setRoutes(nextRoutes);
     setOrders(nextOrders);
     routeHistoryService.recordChange({
@@ -3567,10 +3623,7 @@ export default function App() {
                       setTimeout(() => setSaveNotification(null), 2500);
                     }}
                     onSelectOrders={handleSelectStreetOrders}
-                    onCreateRouteFromOrders={(orderIds) => {
-                      setSelectedOrderIds(orderIds);
-                      handleCreateRoute();
-                    }}
+                    onCreateRouteFromOrders={(orderIds) => handleCreateRoute(orderIds)}
                     selectedOrderIds={selectedOrderIds}
                     activeMode={activeStreetMode}
                     onSetActiveMode={setActiveStreetMode}
