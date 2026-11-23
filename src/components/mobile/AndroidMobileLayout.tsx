@@ -35,7 +35,7 @@ import {
   Eye,
   EyeOff
 } from 'lucide-react';
-import { Order, Route, Store, TruckType, Zone, StreetHighlight, StoreMarkerLabelMode, RouteVersion } from '../../types';
+import { Order, Route, Store, TruckType, Zone, StreetHighlight, StoreMarkerLabelMode, RouteVersion, RoadBarrier } from '../../types';
 import { MapView } from '../map/MapView';
 import { MobileBottomSheet } from './MobileBottomSheet';
 import { LanguageSelector } from '../common/LanguageSelector';
@@ -49,6 +49,7 @@ export type MobileTab = 'map' | 'routes' | 'orders' | 'dispatch';
 
 interface AndroidMobileLayoutProps {
   cloudSlot?: React.ReactNode;
+  barriers?: RoadBarrier[];
   orders: Order[];
   filteredOrders: Order[];
   stores: Store[];
@@ -109,6 +110,7 @@ export const openExternalNavigation = (lat: number, lng: number, label?: string)
 
 export const AndroidMobileLayout: React.FC<AndroidMobileLayoutProps> = ({
   cloudSlot,
+  barriers = [],
   orders,
   filteredOrders,
   stores,
@@ -354,6 +356,7 @@ export const AndroidMobileLayout: React.FC<AndroidMobileLayoutProps> = ({
         {/* TAB 1: MAP VIEW */}
         <div className={cn("w-full h-full relative", activeTab === 'map' ? 'block' : 'hidden')}>
           <MapView
+            barriers={barriers}
             orders={filteredOrders}
             routes={routes}
             selectedOrderIds={selectedOrderIds}

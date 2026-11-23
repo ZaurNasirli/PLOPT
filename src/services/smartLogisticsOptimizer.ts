@@ -163,6 +163,18 @@ export const runSmartLogistics = async (
     const matrix = await buildRoadMatrixLookup(partitionOrders, WAREHOUSE_LOCATION);
     const orderIndices = partitionOrders.map((_, idx) => idx + 1);
 
+    if (matrix.barrierInfo) {
+      const b = matrix.barrierInfo;
+      onProgress({
+        percent: baseProgress + 5,
+        message: `🚧 Учёт барьеров: ${b.barriersCount}`,
+        log: `Барьеры (${b.barriersCount}): объезд учтён для ${b.correctedPairs} пар точек` +
+          (b.unreachablePairs ? `, недоступно без проезда через барьер: ${b.unreachablePairs}` : '') +
+          (b.partial ? ' — учтены частично (сервер Valhalla недоступен или лимит запросов)' : '') +
+          (b.usedEstimate ? ' — проверка по прямой (OSRM недоступен)' : '')
+      });
+    }
+
     onProgress({
       percent: baseProgress + 10,
       message: `🧠 Запуск Multi-Start Hybrid VRP (${config.multiStartIterations} независимых решений)...`,

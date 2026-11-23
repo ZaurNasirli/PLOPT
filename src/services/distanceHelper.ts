@@ -219,6 +219,8 @@ export function getRouteDistanceInfo(route: Route, routeOrders?: Order[]): Route
     statusText = '🤖 ИИ Gemini + OSRM (Склад → Магазины → Склад)';
   } else if (routingSource === 'BACKUP') {
     statusText = 'Дороги OSRM (Резервный)';
+  } else if (routingSource === 'VALHALLA') {
+    statusText = 'Объезд барьеров (Valhalla, Склад → Магазины → Склад)';
   }
 
   return {
@@ -239,7 +241,8 @@ export interface NavDetailsInput {
   distanceKm: number;
   durationMinutes?: number;
   isRealRoad: boolean;
-  providerUsed?: 'osrm' | 'backup' | 'haversine';
+  providerUsed?: 'osrm' | 'backup' | 'haversine' | 'valhalla';
+  barrierStatus?: 'detour' | 'blocked';
 }
 
 /**
@@ -290,9 +293,12 @@ export function applyNavDetailsToRoute(
       routingSource:
         route.routingSource === 'AI_GEMINI'
           ? 'AI_GEMINI'
-          : nav.providerUsed === 'backup'
-            ? 'BACKUP'
-            : 'OSRM',
+          : nav.providerUsed === 'valhalla'
+            ? 'VALHALLA'
+            : nav.providerUsed === 'backup'
+              ? 'BACKUP'
+              : 'OSRM',
+      barrierStatus: nav.barrierStatus,
       isRealRoad: true,
       distance: nav.distanceKm,
       durationMinutes: nav.durationMinutes ?? route.durationMinutes
@@ -306,6 +312,7 @@ export function applyNavDetailsToRoute(
     roadDistanceKm: undefined,
     roadDurationMin: undefined,
     routingSource: route.routingSource === 'AI_GEMINI' ? 'AI_GEMINI' : 'HAVERSINE',
+    barrierStatus: nav.barrierStatus,
     isRealRoad: false,
     distance: straightKm,
     durationMinutes: route.durationMinutes

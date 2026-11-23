@@ -8,15 +8,18 @@ import {
   Sun, Moon, Filter, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, X, MapPin, Package, Users, 
   Layers, Navigation, Info, Play, FileSpreadsheet, MousePointer2, BarChart2, Save, Truck, TrendingUp, AlertTriangle, Maximize2, Clock, Check, Wand2, ArrowRight,
   Settings, HelpCircle, LayoutDashboard, Calendar, CheckSquare, Square, Sliders, History, Activity, Sparkles, RefreshCw, RotateCcw,
-  ShieldCheck, CheckCircle2, AlertOctagon, Tag, Store as StoreIcon, Building2, Smartphone
+  ShieldCheck, CheckCircle2, AlertOctagon, Tag, Store as StoreIcon, Building2, Smartphone, Construction
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
-import { Order, Route, StreetHighlight, StreetGroup, Store, RouteVersion, TruckType, Zone, StoreMarkerLabelMode, StoreMarkerLabelOption, Driver, Shift } from './types';
+import { Order, Route, StreetHighlight, StreetGroup, Store, RouteVersion, TruckType, Zone, StoreMarkerLabelMode, StoreMarkerLabelOption, Driver, Shift, RoadBarrier } from './types';
 import { RotaPage, INITIAL_DRIVERS, INITIAL_SHIFTS } from './components/RotaPage';
 import { useCloudSync } from './hooks/useCloudSync';
 import { CloudSyncButton } from './components/common/CloudSyncButton';
+import { BarriersPanel } from './components/barriers/BarriersPanel';
+import { setRoadBarriers, getBarrierHash, getActiveBarriers, anyBarrierTouchesPath } from './services/barriers/barrierStore';
+import { valhallaLocate } from './services/barriers/valhallaClient';
 import { AlgorithmSelector } from './components/AlgorithmSelector';
 import { BulkActionsMenu } from './components/BulkActionsMenu';
 import { RouterModal } from './components/RouterModal';
@@ -314,7 +317,7 @@ const DEFAULT_TRUCK_TYPES: TruckType[] = [
   { id: 'truck-3', name: 'Грузовик 5.0т', maxWeight: 5000, maxVolume: 30, rank: 3 }
 ];
 
-export type LeftPanelTab = 'stores' | 'routes' | 'history' | 'analytics' | 'streets' | 'scenarios';
+export type LeftPanelTab = 'stores' | 'routes' | 'history' | 'analytics' | 'streets' | 'barriers' | 'scenarios';
 
 /**
  * Sanitizes routes before serializing to localStorage.
@@ -753,6 +756,29 @@ export default function App() {
     safeSetStorageItem('routeVersions', JSON.stringify(routeVersions));
   }, [routeVersions]);
 
+  // --- Road barriers (closed roads the router must avoid) ---
+  const [barriers, setBarriers] = useState<RoadBarrier[]>(() => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem('road_barriers_v1') || 'null');
+      const list = Array.isArray(parsed) ? parsed : [];
+      setRoadBarriers(list); // routing services must know them before the first render
+      return list;
+    } catch {
+      return [];
+    }
+  });
+  const [barrierPlacementMode, setBarrierPlacementModeState] = useState<'point' | 'zone' | null>(null);
+  const [barrierZoneRadius, setBarrierZoneRadius] = useState(300);
+  const [isPlacingBarrier, setIsPlacingBarrier] = useState(false);
+  const [mapFocusPoint, setMapFocusPoint] = useState<{ lat: number; lng: number; zoom?: number; ts: number } | null>(null);
+  const [barrierHash, setBarrierHash] = useState(() => getBarrierHash());
+
+  useEffect(() => {
+    setRoadBarriers(barriers);
+    setBarrierHash(getBarrierHash());
+    safeSetStorageItem('road_barriers_v1', JSON.stringify(barriers));
+  }, [barriers]);
+
   // Rota (drivers & shifts) — kept here so it is persisted even while the Rota page is closed
   const [drivers, setDrivers] = useState<Driver[]>(() => {
     try {
@@ -787,8 +813,9 @@ export default function App() {
     streetGroups,
     drivers,
     shifts,
+    barriers,
     settings: { routingLimits, streetLineWidth, streetLineOpacity }
-  }), [orders, routes, routeVersions, streetHighlights, streetGroups, drivers, shifts, routingLimits, streetLineWidth, streetLineOpacity]);
+  }), [orders, routes, routeVersions, streetHighlights, streetGroups, drivers, shifts, barriers, routingLimits, streetLineWidth, streetLineOpacity]);
 
   const applyCloudData = useCallback((data: Record<string, unknown>) => {
     if (Array.isArray(data.orders)) setOrders(data.orders as Order[]);
@@ -798,6 +825,7 @@ export default function App() {
     if (Array.isArray(data.streetGroups)) setStreetGroups(data.streetGroups as StreetGroup[]);
     if (Array.isArray(data.drivers)) setDrivers(data.drivers as Driver[]);
     if (Array.isArray(data.shifts)) setShifts(data.shifts as Shift[]);
+    if (Array.isArray(data.barriers)) setBarriers(data.barriers as RoadBarrier[]);
     const settings = data.settings as { routingLimits?: Partial<RoutingLimits>; streetLineWidth?: number; streetLineOpacity?: number } | undefined;
     if (settings?.routingLimits) {
       setRoutingLimits(prev => ({
@@ -1192,6 +1220,135 @@ export default function App() {
     setSaveNotification(`Навигационные линии обновлены: ${updatedCount} из ${routes.length} по реальным дорогам!`);
     setTimeout(() => setSaveNotification(null), 3500);
   };
+
+  // --- Road barrier handlers ---
+  const setBarrierPlacementMode = (mode: 'point' | 'zone' | null) => {
+    setBarrierPlacementModeState(mode);
+    if (mode) setActiveStreetMode(null);
+  };
+
+  const barrierTimestamp = () =>
+    new Date().toLocaleString([], { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+
+  const handleMapClickBarrier = async (lat: number, lng: number) => {
+    if (!barrierPlacementMode || isPlacingBarrier) return;
+    const id = `barrier-${Date.now()}`;
+    const createdAt = barrierTimestamp();
+
+    if (barrierPlacementMode === 'zone') {
+      setBarriers(prev => [...prev, {
+        id, kind: 'zone', lat, lng, radiusMeters: barrierZoneRadius, isActive: true, createdAt,
+        name: t('barrierZoneDefaultName', { n: prev.filter(b => b.kind === 'zone').length + 1 })
+      }]);
+      return;
+    }
+
+    // Point barrier: snap to the nearest drivable road to show exactly which segment is closed
+    setIsPlacingBarrier(true);
+    try {
+      const snap = await valhallaLocate({ lat, lng });
+      setBarriers(prev => [...prev, {
+        id, kind: 'point', isActive: true, createdAt,
+        lat: snap?.lat ?? lat,
+        lng: snap?.lng ?? lng,
+        blockedSegment: snap?.segment && snap.segment.length >= 2 ? snap.segment : undefined,
+        name: snap?.name || t('barrierDefaultName', { n: prev.length + 1 })
+      }]);
+      if (!snap) {
+        setSaveNotification('Не удалось привязать барьер к дороге (сервер Valhalla недоступен) — он поставлен в точку клика');
+      } else if (calculateDistance(lat, lng, snap.lat, snap.lng) > 0.12) {
+        setSaveNotification('Барьер привязан к ближайшей дороге в ' + Math.round(calculateDistance(lat, lng, snap.lat, snap.lng) * 1000) + ' м от клика');
+      }
+    } finally {
+      setIsPlacingBarrier(false);
+    }
+  };
+
+  const handleCloseStreet = (streetId: string) => {
+    const street = streetHighlights.find(s => s.id === streetId);
+    if (!street) return;
+    const lines = street.multiCoordinates && street.multiCoordinates.length > 0
+      ? street.multiCoordinates
+      : street.coordinates && street.coordinates.length >= 2 ? [street.coordinates] : [];
+    if (lines.length === 0) return;
+    setBarriers(prev => [...prev, {
+      id: `barrier-${Date.now()}`, kind: 'street', name: street.name, isActive: true, createdAt: barrierTimestamp(),
+      lat: lines[0][0][0], lng: lines[0][0][1], path: lines
+    }]);
+    setSaveNotification(`Улица «${street.name}» закрыта для проезда`);
+  };
+
+  const handleToggleBarrier = (id: string) =>
+    setBarriers(prev => prev.map(b => b.id === id ? { ...b, isActive: !b.isActive } : b));
+  const handleDeleteBarrier = (id: string) => setBarriers(prev => prev.filter(b => b.id !== id));
+  const handleRenameBarrier = (id: string, name: string) =>
+    setBarriers(prev => prev.map(b => b.id === id ? { ...b, name } : b));
+  const handleClearBarriers = () => {
+    if (barriers.length === 0) return;
+    if (window.confirm(`Удалить все барьеры (${barriers.length})?`)) setBarriers([]);
+  };
+  const handleFocusBarrier = (b: RoadBarrier) =>
+    setMapFocusPoint({ lat: b.lat, lng: b.lng, zoom: b.kind === 'zone' ? 15 : 17, ts: Date.now() });
+
+  // Rebuild road lines: after barriers change only the routes that touch a barrier (or were rebuilt
+  // around one before) are recalculated; the panel button rebuilds every route.
+  const [isRebuildingBarrierRoutes, setIsRebuildingBarrierRoutes] = useState(false);
+  const routesRef = useRef(routes);
+  routesRef.current = routes;
+  const ordersRef = useRef(orders);
+  ordersRef.current = orders;
+
+  const rebuildRoutesForBarriers = async (onlyAffected: boolean) => {
+    const active = getActiveBarriers();
+    const targets = routesRef.current.filter(r =>
+      !onlyAffected ||
+      Boolean(r.barrierStatus) ||
+      (active.length > 0 && Array.isArray(r.geometry) && r.geometry.length > 1 && anyBarrierTouchesPath(active, r.geometry))
+    );
+    if (targets.length === 0) return;
+
+    setIsRebuildingBarrierRoutes(true);
+    const orderMap = new Map(ordersRef.current.map(o => [o.id, o]));
+    let detours = 0;
+    let blocked = 0;
+    for (const route of targets) {
+      const routeOrders = route.orderIds.map(id => orderMap.get(id)).filter((o): o is Order => Boolean(o));
+      if (routeOrders.length === 0) continue;
+      try {
+        const nav = await getRouteNavDetails([
+          WAREHOUSE_LOCATION,
+          ...routeOrders.map(o => ({ lat: o.lat, lng: o.lng })),
+          WAREHOUSE_LOCATION
+        ]);
+        if (nav.barrierStatus === 'detour') detours++;
+        if (nav.barrierStatus === 'blocked') blocked++;
+        setRoutes(prev => prev.map(r => r.id === route.id ? applyNavDetailsToRoute(r, routeOrders, nav) : r));
+      } catch {
+        // keep the previous line
+      }
+    }
+    setIsRebuildingBarrierRoutes(false);
+    if (active.length > 0) {
+      setSaveNotification(
+        `Линии маршрутов перестроены: в объезд ${detours}` + (blocked > 0 ? `, через барьер (объезд не найден) ${blocked}` : '')
+      );
+    }
+  };
+
+  useEffect(() => {
+    const timer = setTimeout(() => { void rebuildRoutesForBarriers(true); }, 1000);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [barrierHash]);
+
+  useEffect(() => {
+    if (activeStreetMode) setBarrierPlacementModeState(null);
+  }, [activeStreetMode]);
+
+  const barrierRouteStats = useMemo(() => ({
+    detour: routes.filter(r => r.barrierStatus === 'detour').length,
+    blocked: routes.filter(r => r.barrierStatus === 'blocked').length
+  }), [routes]);
 
   const handleRenameScenario = (id: string, newName: string) => {
     setRouteVersions(prev => prev.map(v => v.id === id ? { ...v, name: newName } : v));
@@ -2738,6 +2895,7 @@ export default function App() {
     const mobileContent = (
       <AndroidMobileLayout
         cloudSlot={<CloudSyncButton cloud={cloud} variant="mobile" />}
+        barriers={barriers}
         orders={orders}
         filteredOrders={filteredOrders}
         stores={stores}
@@ -3452,7 +3610,7 @@ export default function App() {
               )}
 
               {/* Icon-only tab switcher with hover tooltips */}
-              <div className="grid grid-cols-6 gap-1 bg-muted/40 p-1 rounded-xl shrink-0 border border-border/50">
+              <div className="grid grid-cols-7 gap-1 bg-muted/40 p-1 rounded-xl shrink-0 border border-border/50">
                 {[
                   { 
                     id: 'stores' as LeftPanelTab, 
@@ -3480,6 +3638,12 @@ export default function App() {
                     label: `${t('tabStreets')}${streetHighlights.length > 0 ? ` (${streetHighlights.length})` : ''}`, 
                     icon: <MapPin size={16} className="text-rose-500" />,
                     hasBadge: streetHighlights.length > 0
+                  },
+                  { 
+                    id: 'barriers' as LeftPanelTab, 
+                    label: `${t('tabBarriers')}${barriers.length > 0 ? ` (${barriers.filter(b => b.isActive).length})` : ''}`, 
+                    icon: <Construction size={16} className="text-red-500" />,
+                    hasBadge: barriers.some(b => b.isActive)
                   },
                   { 
                     id: 'scenarios' as LeftPanelTab, 
@@ -3721,6 +3885,27 @@ export default function App() {
                 </div>
               )}
 
+              {leftPanelTab === 'barriers' && (
+                <BarriersPanel
+                  barriers={barriers}
+                  placementMode={barrierPlacementMode}
+                  onSetPlacementMode={setBarrierPlacementMode}
+                  zoneRadius={barrierZoneRadius}
+                  onSetZoneRadius={setBarrierZoneRadius}
+                  streets={streetHighlights}
+                  onCloseStreet={handleCloseStreet}
+                  onToggle={handleToggleBarrier}
+                  onDelete={handleDeleteBarrier}
+                  onRename={handleRenameBarrier}
+                  onFocus={handleFocusBarrier}
+                  onClearAll={handleClearBarriers}
+                  onRebuildRoutes={() => { void rebuildRoutesForBarriers(false); }}
+                  isRebuilding={isRebuildingBarrierRoutes}
+                  detourRoutes={barrierRouteStats.detour}
+                  blockedRoutes={barrierRouteStats.blocked}
+                />
+              )}
+
               {leftPanelTab === 'scenarios' && (
                 <ScenariosPanel 
                   routeVersions={routeVersions}
@@ -3776,6 +3961,15 @@ export default function App() {
             routes={routes} 
             selectedOrderIds={selectedOrderIds}
             storeMarkerLabelMode={storeMarkerLabelMode}
+            barriers={barriers}
+            barrierPlacementMode={barrierPlacementMode}
+            barrierZoneRadius={barrierZoneRadius}
+            onMapClickBarrier={handleMapClickBarrier}
+            onSetBarrierPlacementMode={setBarrierPlacementMode}
+            onToggleBarrier={handleToggleBarrier}
+            onDeleteBarrier={handleDeleteBarrier}
+            isPlacingBarrier={isPlacingBarrier}
+            focusPoint={mapFocusPoint}
             onToggleOrder={(ids) => {
               const idArray = Array.isArray(ids) ? ids : [ids];
               const allSelected = idArray.every(id => selectedOrderIds.includes(id));

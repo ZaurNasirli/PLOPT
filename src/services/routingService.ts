@@ -153,6 +153,8 @@ export interface RouteNavDetails {
   distanceKm: number;
   durationMinutes?: number;
   isRealRoad: boolean;
+  providerUsed?: 'osrm' | 'backup' | 'haversine' | 'valhalla';
+  barrierStatus?: 'detour' | 'blocked';
 }
 
 // In-memory cache for navigation queries
@@ -233,7 +235,9 @@ export const getRouteNavDetails = async (points: { lat: number; lng: number }[])
     geometry: details.geometry,
     distanceKm: details.distanceKm,
     durationMinutes: details.durationMinutes,
-    isRealRoad: details.isRealRoad
+    isRealRoad: details.isRealRoad,
+    providerUsed: details.providerUsed,
+    barrierStatus: details.barrierStatus
   };
 };
 

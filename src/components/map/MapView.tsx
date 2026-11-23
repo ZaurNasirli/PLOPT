@@ -4,7 +4,8 @@ import { MapContainer, TileLayer, Marker, Popup, Polyline, CircleMarker, Polygon
 import L from 'leaflet';
 import 'leaflet-lasso';
 import { Eye, EyeOff, Navigation, MapPin, Paintbrush, MousePointerClick, Check, X, RotateCcw, AlertCircle, Plus, Sparkles } from 'lucide-react';
-import { Order, Route, Store, Zone, StreetHighlight, StoreMarkerLabelMode } from '../../types';
+import { Order, Route, Store, Zone, StreetHighlight, StoreMarkerLabelMode, RoadBarrier } from '../../types';
+import { BarrierLayers, BarrierClickHandler, FlyToPoint } from './BarrierLayers';
 import { Button, Card } from '../common/UIComponents';
 import { cn } from '../../lib/utils';
 import { WAREHOUSE_LOCATION } from '../../mockData';
@@ -383,6 +384,16 @@ export interface MapViewProps {
   onOpenStreetsTab?: () => void;
   onSelectRoute?: (id: string | null) => void;
   storeMarkerLabelMode?: StoreMarkerLabelMode;
+  // Road barriers
+  barriers?: RoadBarrier[];
+  barrierPlacementMode?: 'point' | 'zone' | null;
+  barrierZoneRadius?: number;
+  onMapClickBarrier?: (lat: number, lng: number) => void;
+  onSetBarrierPlacementMode?: (mode: 'point' | 'zone' | null) => void;
+  onToggleBarrier?: (id: string) => void;
+  onDeleteBarrier?: (id: string) => void;
+  isPlacingBarrier?: boolean;
+  focusPoint?: { lat: number; lng: number; zoom?: number; ts: number } | null;
 }
 
 export function MapView({ 
@@ -427,7 +438,16 @@ export function MapView({
   onClearCurrentBrush, 
   onSelectStreetOrders, 
   onOpenStreetsTab,
-  storeMarkerLabelMode = ['volume']
+  storeMarkerLabelMode = ['volume'],
+  barriers = [],
+  barrierPlacementMode = null,
+  barrierZoneRadius = 300,
+  onMapClickBarrier,
+  onSetBarrierPlacementMode,
+  onToggleBarrier,
+  onDeleteBarrier,
+  isPlacingBarrier = false,
+  focusPoint = null
 }: MapViewProps) {
   const [contextMenu, setContextMenu] = useState<{ 
     x: number; 
@@ -490,6 +510,11 @@ export function MapView({
             allZones={zones}
           />
         ))}
+
+        {/* Road barriers (closed roads) */}
+        <BarrierLayers barriers={barriers} onToggleBarrier={onToggleBarrier} onDeleteBarrier={onDeleteBarrier} />
+        <BarrierClickHandler isActive={Boolean(barrierPlacementMode)} onMapClick={onMapClickBarrier} />
+        <FlyToPoint target={focusPoint} />
 
         {/* Interactive Street Click Handler (Способ 2) */}
         <StreetClickHandler 
@@ -854,6 +879,37 @@ export function MapView({
 
       {/* Top Banner when Street Click or Brush Mode is active */}
       <AnimatePresence>
+        {barrierPlacementMode && (
+          <motion.div
+            key="barrier-mode-banner"
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="absolute top-4 left-1/2 -translate-x-1/2 z-[1000] bg-card/95 backdrop-blur-md border border-red-500/40 shadow-xl rounded-full px-4 py-2 flex items-center gap-3 text-xs font-medium max-w-[calc(100%-24px)]"
+          >
+            <span className="relative flex h-2.5 w-2.5 shrink-0">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500"></span>
+            </span>
+            <span className="font-semibold text-foreground">
+              {isPlacingBarrier
+                ? 'Привязываем барьер к дороге...'
+                : barrierPlacementMode === 'point'
+                  ? 'Кликните по улице — этот участок дороги будет закрыт'
+                  : `Кликните в центр закрываемой зоны (радиус ${barrierZoneRadius} м)`}
+            </span>
+            {isPlacingBarrier && <div className="animate-spin w-3.5 h-3.5 border-2 border-red-500 border-t-transparent rounded-full shrink-0" />}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2 text-[11px] rounded-full hover:bg-accent text-muted-foreground hover:text-foreground shrink-0"
+              onClick={() => onSetBarrierPlacementMode?.(null)}
+            >
+              <Check size={13} className="mr-1" /> Готово
+            </Button>
+          </motion.div>
+        )}
+
         {activeStreetMode === 'click' && (
           <motion.div
             key="street-mode-click-banner"

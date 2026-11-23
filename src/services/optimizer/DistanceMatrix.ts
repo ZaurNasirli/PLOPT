@@ -2,6 +2,7 @@ import { Order } from '../../types';
 import { WAREHOUSE_LOCATION } from '../../mockData';
 import { calculateDistance } from '../routingService';
 import { distanceMatrixManager } from '../distanceMatrixManager';
+import type { BarrierMatrixInfo } from '../barriers/barrierMatrix';
 
 export interface PointCoord {
   lat: number;
@@ -26,6 +27,8 @@ export class RoadMatrixLookup {
   public readonly cachedPairsCount: number;
   public readonly fetchedPairsCount: number;
   private readonly nearestNeighbors: Int32Array[]; // candidate list for each node
+  /** Set when road barriers were applied to this matrix */
+  public barrierInfo?: BarrierMatrixInfo;
 
   constructor(
     n: number,
@@ -156,7 +159,7 @@ export async function buildRoadMatrixLookup(
     const matrixResult = await distanceMatrixManager.getDistanceMatrix(points);
 
     if (matrixResult && matrixResult.distances && matrixResult.distances.length === n) {
-      return new RoadMatrixLookup(
+      const lookup = new RoadMatrixLookup(
         n,
         matrixResult.distances,
         matrixResult.durations,
@@ -171,6 +174,8 @@ export async function buildRoadMatrixLookup(
           fetchedPairsCount: matrixResult.fetchedCellsCount
         }
       );
+      lookup.barrierInfo = matrixResult.barrierInfo;
+      return lookup;
     }
   } catch (err) {
     console.warn('[VRP Optimizer] Real road matrix fetch encountered warning, applying resilient fallback:', err);

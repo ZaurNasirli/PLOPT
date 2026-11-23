@@ -3,6 +3,8 @@
 // Resilient OSRM fallback, Explicit road vs straight-line separation, and Cache clearing.
 
 import { routingProvider } from './routingProvider';
+import { getActiveBarriers } from './barriers/barrierStore';
+import { applyBarriersToMatrix, BarrierMatrixInfo } from './barriers/barrierMatrix';
 
 const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
   const R = 6371;
@@ -46,6 +48,8 @@ export interface DistanceMatrixResult {
   fallbackPairs: number;
   coveragePercent: number;
   routingProvider: string;
+  /** Present when road barriers were applied to this matrix */
+  barrierInfo?: BarrierMatrixInfo;
 }
 
 export interface MatrixCacheStats {
@@ -602,9 +606,27 @@ class DistanceMatrixManager {
 
     this.persistDebounced();
 
+    // Road barriers: correct the cells whose fastest route goes through a closed road.
+    // The cached base cells stay barrier-free; corrected values live only in this result.
+    let finalDistances = distances;
+    let finalDurations = durations;
+    let barrierInfo: BarrierMatrixInfo | undefined;
+    const barriers = getActiveBarriers();
+    if (barriers.length > 0 && n > 1) {
+      try {
+        const corrected = await applyBarriersToMatrix(points, distances, durations, barriers);
+        finalDistances = corrected.distances;
+        finalDurations = corrected.durations;
+        barrierInfo = corrected.info;
+      } catch (err) {
+        console.warn('[Barriers] matrix correction failed, using base matrix', err);
+      }
+    }
+
     return {
-      distances,
-      durations,
+      distances: finalDistances,
+      durations: finalDurations,
+      barrierInfo,
       isRealRoad: fallbackPairs === 0,
       hasAnyFallback: fallbackPairs > 0,
       cachedCellsCount,

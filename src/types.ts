@@ -59,7 +59,7 @@ export interface Zone {
   orderIds: string[];
 }
 
-export type RoutingSource = 'OSRM' | 'BACKUP' | 'HAVERSINE' | 'AI_GEMINI';
+export type RoutingSource = 'OSRM' | 'BACKUP' | 'HAVERSINE' | 'AI_GEMINI' | 'VALHALLA';
 
 export interface Route {
   id: string;
@@ -104,6 +104,8 @@ export interface Route {
   description?: string;
   aiExplanation?: string;
   driverName?: string;
+  /** 'detour': road line rebuilt around active barriers; 'blocked': the line still crosses a barrier (no detour found) */
+  barrierStatus?: 'detour' | 'blocked';
 }
 
 export interface StreetGroup {
@@ -162,3 +164,28 @@ export interface Shift {
 
 export type StoreMarkerLabelOption = 'code' | 'name' | 'volume' | 'weight' | 'items';
 export type StoreMarkerLabelMode = StoreMarkerLabelOption[];
+
+/**
+ * Road barrier: a closed road the router must avoid.
+ * - point:  closes the road segment nearest to the point (between two intersections)
+ * - street: closes a whole street (polylines taken from a highlighted street)
+ * - zone:   closes every road inside a circle
+ */
+export type BarrierKind = 'point' | 'street' | 'zone';
+
+export interface RoadBarrier {
+  id: string;
+  name: string;
+  kind: BarrierKind;
+  /** Anchor: snapped road point (point), centre (zone) or first street point (street) */
+  lat: number;
+  lng: number;
+  /** zone only */
+  radiusMeters?: number;
+  /** street only: polylines [lat, lng] */
+  path?: [number, number][][];
+  /** point only: geometry of the closed road segment, for display */
+  blockedSegment?: [number, number][];
+  isActive: boolean;
+  createdAt: string;
+}

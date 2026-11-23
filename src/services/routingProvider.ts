@@ -1,5 +1,9 @@
 // Unified Routing Provider Layer
 // Provides resilient OSRM road routing, fallback mechanisms, concurrency control, and status tracking.
+// When road barriers are active, lines that cross a barrier are rebuilt with Valhalla (which can avoid roads).
+
+import { getActiveBarriers, getBarrierHash, anyBarrierTouchesPath } from './barriers/barrierStore';
+import { valhallaRoute } from './barriers/valhallaClient';
 
 const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
   const R = 6371;
@@ -37,8 +41,10 @@ export interface RouteNavDetails {
   durationMinutes?: number;
   isRealRoad: boolean;
   isFallback: boolean;
-  providerUsed: 'osrm' | 'backup' | 'haversine';
+  providerUsed: 'osrm' | 'backup' | 'haversine' | 'valhalla';
   summary?: string;
+  /** set when barriers are active: 'detour' = rebuilt around them, 'blocked' = still crosses one */
+  barrierStatus?: 'detour' | 'blocked';
 }
 
 export interface PairDistanceResult {
@@ -46,7 +52,7 @@ export interface PairDistanceResult {
   durationMinutes: number;
   isRealRoad: boolean;
   isFallback: boolean;
-  providerUsed: 'osrm' | 'backup' | 'haversine';
+  providerUsed: 'osrm' | 'backup' | 'haversine' | 'valhalla';
 }
 
 type StatusListener = (info: RoutingProviderStatusInfo) => void;
@@ -60,6 +66,8 @@ class RoutingProviderService {
   
   // Cache for route geometry & nav details
   private navCache = new Map<string, RouteNavDetails>();
+  // Barrier-aware results, keyed by points + active barrier set (memory only)
+  private barrierNavCache = new Map<string, RouteNavDetails>();
   private readonly MAX_CACHE_ENTRIES = 500;
 
   // Provider Health & Status
@@ -386,9 +394,61 @@ class RoutingProviderService {
   }
 
   /**
-   * Main unified method to retrieve full road navigation details
+   * Main unified method to retrieve full road navigation details.
+   * With active road barriers, a line that passes through a barrier is rebuilt around it.
    */
   public async getRouteNavDetails(points: { lat: number; lng: number }[]): Promise<RouteNavDetails> {
+    const base = await this.getBaseRouteNavDetails(points);
+    const barriers = getActiveBarriers();
+    if (barriers.length === 0 || !points || points.length < 2) return base;
+
+    // Straight fallback lines say nothing about real roads, so check those with Valhalla too
+    const mayCross = !base.isRealRoad || anyBarrierTouchesPath(barriers, base.geometry);
+    if (!mayCross) return base;
+
+    const key = `${getBarrierHash()}#${points.map(p => `${p.lat.toFixed(5)},${p.lng.toFixed(5)}`).join(';')}`;
+    const cached = this.barrierNavCache.get(key);
+    if (cached) return cached;
+
+    const detour = await valhallaRoute(points, barriers);
+    let result: RouteNavDetails;
+    if (detour && detour.coordinates.length >= 2) {
+      const stillCrosses = anyBarrierTouchesPath(barriers.filter(b => b.kind === 'zone'), detour.coordinates);
+      // Valhalla's travel times are on a different (slower) scale than OSRM's. Keep routes comparable:
+      // OSRM time × (Valhalla with barriers / Valhalla without barriers).
+      let durationMinutes = detour.durationMinutes;
+      if (base.isRealRoad && base.durationMinutes) {
+        const plain = await valhallaRoute(points, []);
+        if (plain && plain.durationMinutes > 0) {
+          const factor = Math.max(1, detour.durationMinutes / plain.durationMinutes);
+          durationMinutes = Math.round(base.durationMinutes * factor);
+        }
+      }
+      result = {
+        geometry: detour.coordinates,
+        distanceKm: detour.distanceKm,
+        durationMinutes,
+        isRealRoad: true,
+        isFallback: false,
+        providerUsed: 'valhalla',
+        barrierStatus: stillCrosses ? 'blocked' : 'detour',
+        summary: `${detour.distanceKm} км в объезд барьеров (~${durationMinutes} мин)`
+      };
+    } else {
+      result = base.isRealRoad && !anyBarrierTouchesPath(barriers, base.geometry)
+        ? base
+        : { ...base, barrierStatus: 'blocked' };
+    }
+
+    this.barrierNavCache.set(key, result);
+    if (this.barrierNavCache.size > 300) {
+      const first = this.barrierNavCache.keys().next().value;
+      if (first) this.barrierNavCache.delete(first);
+    }
+    return result;
+  }
+
+  private async getBaseRouteNavDetails(points: { lat: number; lng: number }[]): Promise<RouteNavDetails> {
     if (!points || points.length < 2) {
       return {
         geometry: [],

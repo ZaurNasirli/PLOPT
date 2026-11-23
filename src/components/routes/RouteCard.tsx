@@ -158,6 +158,23 @@ export const RouteCard: React.FC<RouteCardProps> = ({
             </span>
           )}
 
+          {route.barrierStatus === 'detour' && (
+            <span
+              className="inline-flex items-center gap-0.5 px-1 py-0.2 rounded text-[8px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 shrink-0"
+              title={t('barrierRouteDetourBadge')}
+            >
+              🚧 {t('barrierRouteDetourBadge')}
+            </span>
+          )}
+          {route.barrierStatus === 'blocked' && (
+            <span
+              className="inline-flex items-center gap-0.5 px-1 py-0.2 rounded text-[8px] font-bold bg-destructive/10 text-destructive border border-destructive/30 shrink-0"
+              title={t('barrierRoutesBlocked', { count: 1 })}
+            >
+              ⚠ {t('barrierRouteBlockedBadge')}
+            </span>
+          )}
+
           {route.routingSource === 'AI_GEMINI' && (
             <span
               className="inline-flex items-center gap-0.5 px-1 py-0.2 rounded text-[8px] font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20 shrink-0"

@@ -74,7 +74,7 @@ export function StatBlock({
       : `${data.satir} ${t('satirUnit')}`;
   
   const ordersText = `${data.orders} ${t('ordersShort') || 'зак.'}`;
-  const routesText = isRoute ? ` · ${data.routeCount} маршр. · ${data.distance} км` : '';
+  const routesText = isRoute ? ` · ${data.routeCount} маршр. · ${Math.round((Number(data.distance) || 0) * 10) / 10} км` : '';
 
   return (
     <div className="flex flex-col min-w-0 shrink">
