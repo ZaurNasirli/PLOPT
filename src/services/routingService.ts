@@ -410,6 +410,53 @@ export const optimizeRouteGreedy = (orderList: Order[], matrix?: number[][]): Or
   return result.length === n ? result : orderList;
 };
 
+/**
+ * Runs a routing algorithm separately for every group of orders that may share a vehicle.
+ * When combining time slots / shipping dates is not allowed, mixing them in one input list makes
+ * greedy algorithms (sweep, cluster, insertion, ...) cut a new route at almost every order.
+ * Route ids and names are renumbered so they stay unique across partitions.
+ */
+export const runPartitioned = async (
+  algorithm: (orders: Order[], limits: RoutingLimits, onProgress: (p: ProgressUpdate) => void) => Promise<Route[]>,
+  orders: Order[],
+  limits: RoutingLimits,
+  onProgress: (p: ProgressUpdate) => void
+): Promise<Route[]> => {
+  const partitions = new Map<string, Order[]>();
+  for (const o of orders) {
+    const dateKey = limits.allowCombineDates === false ? (o.shippingDate || '') : '*';
+    const slotKey = limits.allowCombineTimeSlots === false ? (o.timeSlot || '') : '*';
+    const key = `${dateKey}__${slotKey}`;
+    if (!partitions.has(key)) partitions.set(key, []);
+    partitions.get(key)!.push(o);
+  }
+
+  if (partitions.size <= 1) {
+    return algorithm(orders, limits, onProgress);
+  }
+
+  const groups = Array.from(partitions.values());
+  const result: Route[] = [];
+  for (let g = 0; g < groups.length; g++) {
+    const routes = await algorithm(groups[g], limits, (p) => onProgress({
+      ...p,
+      percent: Math.min(99, Math.floor(((g + p.percent / 100) / groups.length) * 100))
+    }));
+    result.push(...routes);
+  }
+
+  const runId = Date.now();
+  return result.map((r, idx) => {
+    const prefix = r.name.includes('-') ? r.name.slice(0, r.name.lastIndexOf('-')) : r.name;
+    return {
+      ...r,
+      id: `${r.id.split('-').slice(0, 2).join('-')}-${runId}-${idx}`,
+      name: `${prefix}-${idx + 1}`,
+      color: ROUTE_PALETTE[idx % ROUTE_PALETTE.length]
+    };
+  });
+};
+
 // --- Calculate total round-trip distance for a route (Warehouse -> Stores -> Warehouse) ---
 export const getRouteTotalDistance = (orderList: Order[], matrix?: number[][], baseOrders?: Order[]): number => {
   if (orderList.length === 0) return 0;
@@ -1070,6 +1117,34 @@ export const runCluster = async (orders: Order[], limits: RoutingLimits, onProgr
     
     onProgress({ percent: 10 + Math.floor((i / clusterKeys.length) * 80), message: 'Обработка кластеров...', log: `Кластер ${i+1} обработан` });
     await new Promise(r => setTimeout(r, 20));
+  }
+
+  // Grid cells are small, so many routes end up half empty: merge neighbouring routes while limits allow
+  const centroid = (r: Order[]) => ({
+    lat: r.reduce((s, o) => s + o.lat, 0) / r.length,
+    lng: r.reduce((s, o) => s + o.lng, 0) / r.length
+  });
+  let merged = true;
+  while (merged && finalRoutes.length > 1) {
+    merged = false;
+    // Try to absorb the lightest routes first
+    const order = finalRoutes
+      .map((r, idx) => ({ idx, load: r.reduce((s, o) => s + o.weight, 0) }))
+      .sort((a, b) => a.load - b.load);
+    for (const { idx } of order) {
+      const c = centroid(finalRoutes[idx]);
+      const targets = finalRoutes
+        .map((r, j) => ({ j, d: j === idx ? Infinity : calculateDistance(c.lat, c.lng, centroid(r).lat, centroid(r).lng) }))
+        .filter(t => t.d !== Infinity)
+        .sort((a, b) => a.d - b.d);
+      const target = targets.find(t => checkLimits([...finalRoutes[t.j], ...finalRoutes[idx]], limits));
+      if (target) {
+        finalRoutes[target.j] = [...finalRoutes[target.j], ...finalRoutes[idx]];
+        finalRoutes.splice(idx, 1);
+        merged = true;
+        break;
+      }
+    }
   }
 
   return finalRoutes.map((orderList, idx) => buildInitialRoute('cluster', 'CL', idx, finalizeRouteOrders(orderList), limits));

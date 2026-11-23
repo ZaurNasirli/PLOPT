@@ -22,7 +22,7 @@ import { MOCK_ORDERS, WAREHOUSE_LOCATION } from './mockData';
 import { 
   runSavings, runSweep, runCluster, runGenetic, runTabu, 
   runLocalSearch, runVNS, runILS, runACO, runPSO, runBCO, runLNS,
-  runTabuSearch, runGeneticAlgorithm, runClarkeWrightSavings,
+  runTabuSearch, runGeneticAlgorithm, runClarkeWrightSavings, runPartitioned,
   calculateDistance, RoutingLimits, ProgressUpdate, getRouteGeometry, getRouteNavDetails,
   optimizeRoute2Opt, optimizeRouteNearestNeighbor, optimizeRouteGreedy, getRouteTotalDistance, getDistanceMatrix
 } from './services/routingService';
@@ -1259,56 +1259,56 @@ export default function App() {
           resultRoutes = await runSmartLogistics(availableOrders, limits, onProgress);
           break;
         }
-        case 'savings': resultRoutes = await runSavings(availableOrders, limits, onProgress); break;
-        case 'sweep': resultRoutes = await runSweep(availableOrders, limits, onProgress); break;
-        case 'cluster': resultRoutes = await runCluster(availableOrders, limits, onProgress); break;
-        case 'genetic': resultRoutes = await runGenetic(availableOrders, limits, onProgress); break;
-        case 'tabu': resultRoutes = await runTabu(availableOrders, limits, onProgress); break;
+        case 'savings': resultRoutes = await runPartitioned(runSavings, availableOrders, limits, onProgress); break;
+        case 'sweep': resultRoutes = await runPartitioned(runSweep, availableOrders, limits, onProgress); break;
+        case 'cluster': resultRoutes = await runPartitioned(runCluster, availableOrders, limits, onProgress); break;
+        case 'genetic': resultRoutes = await runPartitioned(runGenetic, availableOrders, limits, onProgress); break;
+        case 'tabu': resultRoutes = await runPartitioned(runTabu, availableOrders, limits, onProgress); break;
         case 'nn': {
           const { runNearestNeighbor } = await import('./services/routingService');
-          resultRoutes = await runNearestNeighbor(availableOrders, limits, onProgress); 
+          resultRoutes = await runPartitioned(runNearestNeighbor, availableOrders, limits, onProgress); 
           break;
         }
         case 'fi': {
           const { runFarthestInsertion } = await import('./services/routingService');
-          resultRoutes = await runFarthestInsertion(availableOrders, limits, onProgress); 
+          resultRoutes = await runPartitioned(runFarthestInsertion, availableOrders, limits, onProgress); 
           break;
         }
         case 'sa': {
           const { runSimulatedAnnealing } = await import('./services/routingService');
-          resultRoutes = await runSimulatedAnnealing(availableOrders, limits, onProgress); 
+          resultRoutes = await runPartitioned(runSimulatedAnnealing, availableOrders, limits, onProgress); 
           break;
         }
         case 'grasp': {
           const { runGRASP } = await import('./services/routingService');
-          resultRoutes = await runGRASP(availableOrders, limits, onProgress); 
+          resultRoutes = await runPartitioned(runGRASP, availableOrders, limits, onProgress); 
           break;
         }
         case 'ni': {
           const { runNearestInsertion } = await import('./services/routingService');
-          resultRoutes = await runNearestInsertion(availableOrders, limits, onProgress); 
+          resultRoutes = await runPartitioned(runNearestInsertion, availableOrders, limits, onProgress); 
           break;
         }
         case 'rg': {
           const { runRandomizedGreedy } = await import('./services/routingService');
-          resultRoutes = await runRandomizedGreedy(availableOrders, limits, onProgress); 
+          resultRoutes = await runPartitioned(runRandomizedGreedy, availableOrders, limits, onProgress); 
           break;
         }
         case 'ss': {
           const { runSequentialSavings } = await import('./services/routingService');
-          resultRoutes = await runSequentialSavings(availableOrders, limits, onProgress); 
+          resultRoutes = await runPartitioned(runSequentialSavings, availableOrders, limits, onProgress); 
           break;
         }
-        case 'ls': resultRoutes = await runLocalSearch(availableOrders, limits, onProgress); break;
-        case 'vns': resultRoutes = await runVNS(availableOrders, limits, onProgress); break;
-        case 'ils': resultRoutes = await runILS(availableOrders, limits, onProgress); break;
-        case 'aco': resultRoutes = await runACO(availableOrders, limits, onProgress); break;
-        case 'pso': resultRoutes = await runPSO(availableOrders, limits, onProgress); break;
-        case 'bco': resultRoutes = await runBCO(availableOrders, limits, onProgress); break;
-        case 'lns': resultRoutes = await runLNS(availableOrders, limits, onProgress); break;
-        case 'tabu_search': resultRoutes = await runTabuSearch(availableOrders, limits, onProgress); break;
-        case 'genetic_algo': resultRoutes = await runGeneticAlgorithm(availableOrders, limits, onProgress); break;
-        case 'cw_savings': resultRoutes = await runClarkeWrightSavings(availableOrders, limits, onProgress); break;
+        case 'ls': resultRoutes = await runPartitioned(runLocalSearch, availableOrders, limits, onProgress); break;
+        case 'vns': resultRoutes = await runPartitioned(runVNS, availableOrders, limits, onProgress); break;
+        case 'ils': resultRoutes = await runPartitioned(runILS, availableOrders, limits, onProgress); break;
+        case 'aco': resultRoutes = await runPartitioned(runACO, availableOrders, limits, onProgress); break;
+        case 'pso': resultRoutes = await runPartitioned(runPSO, availableOrders, limits, onProgress); break;
+        case 'bco': resultRoutes = await runPartitioned(runBCO, availableOrders, limits, onProgress); break;
+        case 'lns': resultRoutes = await runPartitioned(runLNS, availableOrders, limits, onProgress); break;
+        case 'tabu_search': resultRoutes = await runPartitioned(runTabuSearch, availableOrders, limits, onProgress); break;
+        case 'genetic_algo': resultRoutes = await runPartitioned(runGeneticAlgorithm, availableOrders, limits, onProgress); break;
+        case 'cw_savings': resultRoutes = await runPartitioned(runClarkeWrightSavings, availableOrders, limits, onProgress); break;
         default: {
           const { runSmartLogistics } = await import('./services/smartLogisticsOptimizer');
           resultRoutes = await runSmartLogistics(availableOrders, limits, onProgress);

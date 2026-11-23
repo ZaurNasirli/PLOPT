@@ -235,8 +235,9 @@ export const runSmartLogistics = async (
         isVisible: true,
         distance: distKm,
         straightDistanceKm: straightDistKm,
-        roadDistanceKm: distKm,
-        roadDurationMin: durMin,
+        // Only report road values when the matrix really came from the road network (not a Haversine fallback)
+        roadDistanceKm: matrix.isRealRoad ? distKm : undefined,
+        roadDurationMin: matrix.isRealRoad ? durMin : undefined,
         durationMinutes: schedule.totalDurationMinutes,
         drivingDurationMin: schedule.totalDrivingMinutes,
         waitingDurationMin: schedule.totalWaitingMinutes,
