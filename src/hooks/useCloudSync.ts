@@ -37,6 +37,8 @@ export interface CloudSyncApi {
 }
 
 const SAVE_DEBOUNCE_MS = 1500;
+/** Keys older app versions stored that nothing reads any more (the old Rota page's drivers and shifts) */
+const RETIRED_KEYS = ['drivers', 'shifts'];
 const RETRY_AFTER_ERROR_MS = 15000;
 
 function toCloudError(e: unknown): CloudError {
@@ -132,6 +134,12 @@ export function useCloudSync(
 
       storeRef.current = store;
       partsRef.current = { ...snapshot.partCounts };
+      for (const key of RETIRED_KEYS) {
+        const parts = snapshot.partCounts[key] ?? 0;
+        delete snapshot.values[key];
+        delete partsRef.current[key];
+        if (parts > 0) void store.remove(key, parts).catch(() => { /* retried on the next sign-in */ });
+      }
       const remoteKeys = Object.keys(snapshot.values);
 
       if (remoteKeys.length > 0) {

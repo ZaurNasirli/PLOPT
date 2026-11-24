@@ -184,28 +184,9 @@ export const ru = {
   btnCompareAction: 'Сравнить',
   historyRestoreSuccess: 'Состояние успешно восстановлено',
 
-  // Rota / Driver Page
-  rotaTitle: 'РОТА И СМЕНЫ ВОДИТЕЛЕЙ',
-  rotaSubtitle: 'Управление графиком дежурств водителей, автомобилями и назначением на активные маршруты.',
-  rotaTabCalendar: 'Календарь смен',
-  rotaTabDrivers: 'Водители ({count})',
-  rotaTabMatching: 'Назначение на маршруты',
-  rotaTabStats: 'Статистика роты',
-  btnAddDriver: 'Добавить водителя',
-  btnAddShift: 'Добавить смену',
-  driverName: 'ФИО водителя',
-  driverPhone: 'Телефон',
-  driverPlate: 'Номер авто',
-  driverTruck: 'Тип авто',
-  driverStatus: 'Статус',
-  driverStatusActive: 'Активен',
-  driverStatusOnShift: 'На смене',
-  driverStatusOffDuty: 'Выходной',
-  driverStatusVacation: 'В отпуске',
   shiftMorning: 'Утро (08:00 - 14:00)',
   shiftEvening: 'Вечер (14:00 - 20:00)',
   shiftFullDay: 'Полный день',
-  shiftOff: 'Выходной',
 
   // OSRM & Provider Status
   statusOsrmActive: 'OSRM Дороги активны',

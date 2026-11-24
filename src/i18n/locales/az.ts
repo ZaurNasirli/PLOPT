@@ -184,28 +184,9 @@ export const az = {
   btnCompareAction: 'Müqayisə et',
   historyRestoreSuccess: 'Vəziyyət uğurla bərpa edildi',
 
-  // Rota / Driver Page
-  rotaTitle: 'ROTA VƏ SÜRÜCÜ NÖVBƏLƏRİ',
-  rotaSubtitle: 'Sürücülərin növbə cədvəlinin, avtomobillərin və aktiv marşrutlara təyinatının idarə edilməsi.',
-  rotaTabCalendar: 'Növbə təqvimi',
-  rotaTabDrivers: 'Sürücülər ({count})',
-  rotaTabMatching: 'Marşrutlara təyinat',
-  rotaTabStats: 'Rota statistikası',
-  btnAddDriver: 'Sürücü əlavə et',
-  btnAddShift: 'Növbə əlavə et',
-  driverName: 'Sürücünün ASA',
-  driverPhone: 'Telefon',
-  driverPlate: 'Dövlət nömrə nişanı',
-  driverTruck: 'Avtomobil növü',
-  driverStatus: 'Status',
-  driverStatusActive: 'Aktiv',
-  driverStatusOnShift: 'Növbədə',
-  driverStatusOffDuty: 'İstirahət',
-  driverStatusVacation: 'Məzuniyyət',
   shiftMorning: 'Səhər (08:00 - 14:00)',
   shiftEvening: 'Axşam (14:00 - 20:00)',
   shiftFullDay: 'Tam gün',
-  shiftOff: 'İstirahət günü',
 
   // OSRM & Provider Status
   statusOsrmActive: 'OSRM Yollar aktivdir',

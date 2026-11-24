@@ -2,6 +2,9 @@
 
 @import "leaflet/dist/leaflet.css";
 
+/* Rota module palette and skins (PL/OPT / LogistikPro) */
+@import "./rota/rota-theme.css";
+
 /* The app toggles dark mode with a .dark class on <html>, so dark: utilities must follow it (not the OS setting) */
 @custom-variant dark (&:where(.dark, .dark *));
 

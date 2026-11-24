@@ -39,6 +39,8 @@ export interface CloudStore {
   readAll(): Promise<CloudSnapshot>;
   /** Writes `json` under `key`, removing leftover parts; returns the new number of parts. */
   write(key: string, json: string, previousParts: number): Promise<number>;
+  /** Deletes every part of `key` (used for keys the app no longer has). */
+  remove(key: string, parts: number): Promise<void>;
 }
 
 export function splitIntoParts(json: string, size: number = PART_SIZE): string[] {
@@ -118,6 +120,14 @@ export async function createFirestoreStore(uid: string): Promise<CloudStore> {
         await batch.commit();
       }
       return parts.length;
+    },
+
+    async remove(key, parts) {
+      for (let i = 0; i < parts; i += MAX_PARTS_PER_BATCH) {
+        const batch = writeBatch(db);
+        for (let part = i; part < Math.min(parts, i + MAX_PARTS_PER_BATCH); part++) batch.delete(doc(dataCollection, docId(key, part)));
+        await batch.commit();
+      }
     },
   };
 }

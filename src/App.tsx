@@ -13,8 +13,7 @@ import {
 import * as XLSX from 'xlsx';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
-import { Order, Route, StreetHighlight, StreetGroup, Store, RouteVersion, TruckType, Zone, StoreMarkerLabelMode, StoreMarkerLabelOption, Driver, Shift, RoadBarrier, StoreRecord } from './types';
-import { RotaPage, INITIAL_DRIVERS, INITIAL_SHIFTS } from './components/RotaPage';
+import { Order, Route, StreetHighlight, StreetGroup, Store, RouteVersion, TruckType, Zone, StoreMarkerLabelMode, StoreMarkerLabelOption, RoadBarrier, StoreRecord } from './types';
 import { useCloudSync } from './hooks/useCloudSync';
 import { CloudSyncButton } from './components/common/CloudSyncButton';
 import { BarriersPanel } from './components/barriers/BarriersPanel';
@@ -65,6 +64,10 @@ import { LanguageSelector } from './components/common/LanguageSelector';
 import { AndroidMobileLayout } from './components/mobile/AndroidMobileLayout';
 import { AndroidDeviceFrame } from './components/mobile/AndroidDeviceFrame';
 import { useTranslation } from './i18n/I18nContext';
+import { ensureRotaLoaded, rotaStore, useRotaWorkspace } from './rota/store/workspace';
+
+// The Rota planning module is loaded only when its page is opened
+const RotaModule = React.lazy(() => import('./rota/RotaModule'));
 import { 
   getStreetByClick, 
   findOrdersInBrush, 
@@ -798,29 +801,19 @@ export default function App() {
     safeSetStorageItem('road_barriers_v1', JSON.stringify(barriers));
   }, [barriers]);
 
-  // Rota (drivers & shifts) — kept here so it is persisted even while the Rota page is closed
-  const [drivers, setDrivers] = useState<Driver[]>(() => {
-    try {
-      const parsed = JSON.parse(localStorage.getItem('rota_drivers') || 'null');
-      return Array.isArray(parsed) ? parsed : INITIAL_DRIVERS;
-    } catch {
-      return INITIAL_DRIVERS;
-    }
-  });
-  const [shifts, setShifts] = useState<Shift[]>(() => {
-    try {
-      const parsed = JSON.parse(localStorage.getItem('rota_shifts') || 'null');
-      return Array.isArray(parsed) ? parsed : INITIAL_SHIFTS;
-    } catch {
-      return INITIAL_SHIFTS;
-    }
-  });
+  // Rota module data (kept outside the page so it is saved and synced while the page is closed)
+  const rotaWorkspace = useRotaWorkspace();
+  useEffect(() => { ensureRotaLoaded(); }, []);
+
+  // The old Rota page (drivers & shifts) was replaced by the Rota planning module; drop its leftovers
   useEffect(() => {
-    safeSetStorageItem('rota_drivers', JSON.stringify(drivers));
-  }, [drivers]);
-  useEffect(() => {
-    safeSetStorageItem('rota_shifts', JSON.stringify(shifts));
-  }, [shifts]);
+    try {
+      localStorage.removeItem('rota_drivers');
+      localStorage.removeItem('rota_shifts');
+    } catch {
+      // ignore
+    }
+  }, []);
 
   // --- Cloud database (Firebase Firestore) ---
   // Everything the user works with is synced for the signed-in account; localStorage stays as offline copy.
@@ -830,12 +823,11 @@ export default function App() {
     routeVersions,
     streetHighlights,
     streetGroups,
-    drivers,
-    shifts,
     barriers,
     storeDirectory,
+    rota: rotaWorkspace,
     settings: { routingLimits, streetLineWidth, streetLineOpacity }
-  }), [orders, routes, routeVersions, streetHighlights, streetGroups, drivers, shifts, barriers, storeDirectory, routingLimits, streetLineWidth, streetLineOpacity]);
+  }), [orders, routes, routeVersions, streetHighlights, streetGroups, barriers, storeDirectory, rotaWorkspace, routingLimits, streetLineWidth, streetLineOpacity]);
 
   const applyCloudData = useCallback((data: Record<string, unknown>) => {
     if (Array.isArray(data.orders)) setOrders(data.orders as Order[]);
@@ -843,10 +835,9 @@ export default function App() {
     if (Array.isArray(data.routeVersions)) setRouteVersions(data.routeVersions as RouteVersion[]);
     if (Array.isArray(data.streetHighlights)) setStreetHighlights(data.streetHighlights as StreetHighlight[]);
     if (Array.isArray(data.streetGroups)) setStreetGroups(data.streetGroups as StreetGroup[]);
-    if (Array.isArray(data.drivers)) setDrivers(data.drivers as Driver[]);
-    if (Array.isArray(data.shifts)) setShifts(data.shifts as Shift[]);
     if (Array.isArray(data.barriers)) setBarriers(data.barriers as RoadBarrier[]);
     if (Array.isArray(data.storeDirectory)) setStoreDirectory(data.storeDirectory as StoreRecord[]);
+    if (data.rota && typeof data.rota === 'object') rotaStore.replaceWorkspace(data.rota);
     const settings = data.settings as { routingLimits?: Partial<RoutingLimits>; streetLineWidth?: number; streetLineOpacity?: number } | undefined;
     if (settings?.routingLimits) {
       setRoutingLimits(prev => ({
@@ -3340,15 +3331,9 @@ export default function App() {
         )}
 
         {currentPage === 'rota' && (
-          <RotaPage
-            routes={routes}
-            truckTypes={routingLimits.truckTypes}
-            orders={orders}
-            drivers={drivers}
-            setDrivers={setDrivers}
-            shifts={shifts}
-            setShifts={setShifts}
-          />
+          <React.Suspense fallback={<div className="flex-1 grid place-items-center text-muted-foreground">…</div>}>
+            <RotaModule />
+          </React.Suspense>
         )}
 
         {currentPage === 'routing' && (

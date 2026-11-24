@@ -6,3 +6,6 @@ coverage/
 .env*
 !.env.example
 dist/
+
+# Rota module source material (data, reference scripts, LogistikPro archive) — kept out of git
+_rota_import/

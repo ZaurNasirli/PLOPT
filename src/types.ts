@@ -147,25 +147,6 @@ export interface RouteVersion {
   createdAt: string;
 }
 
-export interface Driver {
-  id: string;
-  name: string;
-  phone: string;
-  truckTypeName: string;
-  licensePlate: string;
-  status: 'active' | 'on-shift' | 'off-duty' | 'vacation';
-  rating: number;
-  shiftsCount: number;
-}
-
-export interface Shift {
-  id: string;
-  driverId: string;
-  date: string; // YYYY-MM-DD
-  type: 'morning' | 'evening' | 'full-day' | 'off-duty';
-  routeId?: string;
-}
-
 export type StoreMarkerLabelOption = 'code' | 'name' | 'volume' | 'weight' | 'items';
 export type StoreMarkerLabelMode = StoreMarkerLabelOption[];
 

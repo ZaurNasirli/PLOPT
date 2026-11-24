@@ -184,28 +184,9 @@ export const en = {
   btnCompareAction: 'Compare',
   historyRestoreSuccess: 'State restored successfully',
 
-  // Rota / Driver Page
-  rotaTitle: 'ROTA & DRIVER SHIFTS',
-  rotaSubtitle: 'Manage driver schedules, vehicle allocation, and assignment to active delivery routes.',
-  rotaTabCalendar: 'Shift Calendar',
-  rotaTabDrivers: 'Drivers ({count})',
-  rotaTabMatching: 'Route Matching',
-  rotaTabStats: 'Rota Statistics',
-  btnAddDriver: 'Add Driver',
-  btnAddShift: 'Add Shift',
-  driverName: 'Driver Name',
-  driverPhone: 'Phone',
-  driverPlate: 'License Plate',
-  driverTruck: 'Vehicle Type',
-  driverStatus: 'Status',
-  driverStatusActive: 'Active',
-  driverStatusOnShift: 'On Shift',
-  driverStatusOffDuty: 'Off Duty',
-  driverStatusVacation: 'On Leave',
   shiftMorning: 'Morning (08:00 - 14:00)',
   shiftEvening: 'Evening (14:00 - 20:00)',
   shiftFullDay: 'Full Day',
-  shiftOff: 'Off Day',
 
   // OSRM & Provider Status
   statusOsrmActive: 'OSRM Roads Active',
