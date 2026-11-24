@@ -24,6 +24,7 @@ import { applyMoves, LockKind, MoveRequest, MoveResult, setLocks } from './state
 import { nameKey } from './core/names';
 import { KanbanDrop, KanbanTab } from './components/kanban/KanbanTab';
 import { BulkBar } from './components/kanban/BulkBar';
+import { MapTab } from './components/map/MapTab';
 import { ConflictsPanel, BalanceWarning } from './components/ConflictsPanel';
 import { StoreDrawer } from './components/StoreDrawer';
 import { RejectionInfo, RejectionModal } from './components/RejectionModal';
@@ -102,7 +103,7 @@ const RotaModule: React.FC = () => {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [openCode, setOpenCode] = useState<string | null>(null);
   const [focusCodes, setFocusCodes] = useState<Set<string>>(new Set());
-  const [, setHoverCode] = useState<string | null>(null);
+  const [hoverCode, setHoverCode] = useState<string | null>(null);
   const [rejection, setRejection] = useState<RejectionInfo | null>(null);
   const [balanceWarning, setBalanceWarning] = useState<BalanceWarning | null>(null);
   const [showConflicts, setShowConflicts] = useState(() => readPref('rota_conflicts', ['1', '0'] as const, '1') === '1');
@@ -275,7 +276,7 @@ const RotaModule: React.FC = () => {
           <EmptyState onImport={() => fileRef.current?.click()} onDemo={() => handleImport(generateDemoDataset(t.header.demoName))} />
         ) : tab === 'rules' ? (
           <RulesTab onToast={setToast} />
-        ) : tab === 'kanban' ? (
+        ) : tab === 'kanban' || tab === 'map' ? (
           <div className="h-full flex flex-col min-h-0">
             <BalancePanel totals={dayTotals(filtered)} workingDays={workingDays} compact right={balanceRight(true)} />
             {selected.size > 0 && (
@@ -290,9 +291,15 @@ const RotaModule: React.FC = () => {
               />
             )}
             <div className="flex-1 min-h-0 flex">
-              <div className="flex-1 min-w-0">
-                <KanbanTab views={filtered} parties={partyList} workingDays={workingDays} checker={checker} selected={selected} focusCodes={focusCodes}
-                  onSelect={setSelected} onOpen={setOpenCode} onDrop={handleDrop} onHover={setHoverCode} />
+              <div className="flex-1 min-w-0 flex flex-col">
+                {tab === 'kanban' ? (
+                  <KanbanTab views={filtered} parties={partyList} workingDays={workingDays} checker={checker} selected={selected} focusCodes={focusCodes}
+                    onSelect={setSelected} onOpen={setOpenCode} onDrop={handleDrop} onHover={setHoverCode} />
+                ) : (
+                  <MapTab views={filtered} parties={partyList} workingDays={workingDays} checker={checker} hovered={hoverCode} focusCodes={focusCodes}
+                    onHover={setHoverCode} onOpen={setOpenCode} onMove={runMoves}
+                    onSelectStores={codes => focusStores(codes)} />
+                )}
               </div>
               {showConflicts && (
                 <ConflictsPanel checker={checker} views={views} balanceWarning={balanceWarning} onDismissWarning={() => setBalanceWarning(null)}
