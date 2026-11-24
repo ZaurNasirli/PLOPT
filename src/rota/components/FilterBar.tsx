@@ -49,6 +49,9 @@ export const FilterBar: React.FC<{
         {ALL_WEEKDAYS.map(d => <option key={d} value={d}>{dayShort(d)}</option>)}
       </select>
       <ToggleChip pressed={filters.onlyChanged} onClick={() => set({ onlyChanged: !filters.onlyChanged })}>{t.filters.onlyChanged}</ToggleChip>
+      <ToggleChip pressed={filters.onlyViolations} onClick={() => set({ onlyViolations: !filters.onlyViolations })}>{t.filters.onlyViolations}</ToggleChip>
+      <ToggleChip pressed={filters.onlyUneven} onClick={() => set({ onlyUneven: !filters.onlyUneven })}>{t.filters.onlyUneven}</ToggleChip>
+      <ToggleChip pressed={filters.onlyLocked} onClick={() => set({ onlyLocked: !filters.onlyLocked })}>🔒 {t.filters.onlyLocked}</ToggleChip>
       {filtersActive(filters) && (
         <button type="button" onClick={() => onChange(EMPTY_FILTERS)} className="h-8 px-2 inline-flex items-center gap-1 rounded-lg text-[12.5px] font-semibold text-ink-600 hover:text-rose-700 cursor-pointer">
           <X size={13} /> {t.filters.reset}

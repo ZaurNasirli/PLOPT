@@ -17,7 +17,17 @@ import { StoreImportFlow } from './components/StoreImportFlow';
 import { generateDemoDataset } from './data/demo';
 import { RulesTab } from './components/rules/RulesTab';
 import { OptimizeButton } from './components/OptimizePanel';
-import { filtersActive } from './state/views';
+import { filtersActive, spreadPct } from './state/views';
+import { validateRules } from './rules/validate';
+import { buildChecker } from './state/checks';
+import { applyMoves, LockKind, MoveRequest, MoveResult, setLocks } from './state/actions';
+import { nameKey } from './core/names';
+import { KanbanDrop, KanbanTab } from './components/kanban/KanbanTab';
+import { BulkBar } from './components/kanban/BulkBar';
+import { ConflictsPanel, BalanceWarning } from './components/ConflictsPanel';
+import { StoreDrawer } from './components/StoreDrawer';
+import { RejectionInfo, RejectionModal } from './components/RejectionModal';
+import { AlertTriangle } from 'lucide-react';
 
 export type RotaTab = 'analytics' | 'kanban' | 'map' | 'rules' | 'scenarios' | 'report';
 export type RotaSkin = 'plopt' | 'logisticpro';
@@ -75,7 +85,28 @@ const RotaModule: React.FC = () => {
 
   const rules = activeRuleSet(ws);
   const views = useMemo(() => buildStoreViews(ws, rules), [ws, rules]);
-  const filtered = useMemo(() => applyFilters(views, filters), [views, filters]);
+  const rulesComplete = useMemo(
+    () => Boolean(rules && ws.dataset) && validateRules(rules, ws.dataset?.stores ?? null, t).every(i => i.severity !== 'error'),
+    [rules, ws.dataset, t]
+  );
+  const checker = useMemo(() => buildChecker(ws, rules, views, rulesComplete), [ws, rules, views, rulesComplete]);
+  const filtered = useMemo(() => applyFilters(views, filters, { issues: checker.storeIssues, locked: checker.locked }), [views, filters, checker]);
+  /** parties in the order of the rule table, then any other party of the data */
+  const partyList = useMemo(() => {
+    const list = (rules?.parties ?? []).map(p => p.name).filter(Boolean);
+    for (const v of views) for (const p of [v.party, v.currentParty]) if (!list.some(x => nameKey(x) === nameKey(p))) list.push(p);
+    return list;
+  }, [rules, views]);
+
+  // selection (cards "code__day"), open store card, focus from the conflicts panel
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [openCode, setOpenCode] = useState<string | null>(null);
+  const [focusCodes, setFocusCodes] = useState<Set<string>>(new Set());
+  const [, setHoverCode] = useState<string | null>(null);
+  const [rejection, setRejection] = useState<RejectionInfo | null>(null);
+  const [balanceWarning, setBalanceWarning] = useState<BalanceWarning | null>(null);
+  const [showConflicts, setShowConflicts] = useState(() => readPref('rota_conflicts', ['1', '0'] as const, '1') === '1');
+  useEffect(() => writePref('rota_conflicts', showConflicts ? '1' : '0'), [showConflicts]);
   const options = useMemo(() => ({
     regions: distinct(views.map(v => v.region)),
     parties: distinct(views.flatMap(v => [v.currentParty, v.party])),
@@ -114,6 +145,53 @@ const RotaModule: React.FC = () => {
   }, [f, t, int]);
 
   const hasData = Boolean(ws.dataset);
+
+  const names = useMemo(() => new Map(views.map(v => [v.storeCode, { name: v.storeName, region: v.region }])), [views]);
+  const handleResult = useCallback((res: MoveResult, spreadBefore: number) => {
+    if (res.rejected.length) setRejection({ ...res, names });
+    if (res.applied) {
+      const st = rotaStore.getState().ws;
+      const after = spreadPct(dayTotals(buildStoreViews(st, activeRuleSet(st))), 'volume', workingDays);
+      setBalanceWarning(after > spreadBefore + 0.05 ? { before: spreadBefore, after } : null);
+    }
+  }, [names, workingDays]);
+  const runMoves = useCallback((requests: MoveRequest[]) => {
+    const before = spreadPct(dayTotals(views), 'volume', workingDays);
+    const res = applyMoves(rotaStore.getState().ws, checker, requests);
+    handleResult(res, before);
+    return res;
+  }, [views, workingDays, checker, handleResult]);
+  const handleDrop = useCallback((d: KanbanDrop) => {
+    const requests: MoveRequest[] = d.cards.map(c => (c.day === d.toDay
+      ? { code: c.code, party: d.toParty ?? undefined }
+      : { code: c.code, fromDay: c.day, toDay: d.toDay, addDay: d.add, party: d.toParty ?? undefined }));
+    runMoves(requests);
+    if (d.cards.length > 1) setSelected(new Set());
+  }, [runMoves]);
+  const handleLock = useCallback((codes: string[], kind: LockKind) => {
+    if (!setLocks(rotaStore.getState().ws, codes, kind)) setToast(t.bulk.needRules);
+  }, [t]);
+  const focusStores = useCallback((codes: string[]) => {
+    const set = new Set(codes);
+    setFocusCodes(set);
+    setSelected(new Set(views.filter(v => set.has(v.storeCode)).flatMap(v => v.currentDays.map(d => `${v.storeCode}__${d}`))));
+  }, [views]);
+  const openView = openCode ? views.find(v => v.storeCode === openCode) ?? null : null;
+  const conflictCount = useMemo(() => {
+    let n = checker.groupIssues.length;
+    for (const l of checker.storeIssues.values()) if (l.some(i => i.severity === 'hard')) n++;
+    return n;
+  }, [checker]);
+  const balanceRight = (withConflicts: boolean) => (
+    <div className="flex flex-col items-end gap-1.5">
+      <OptimizeButton filteredCodes={filtered.map(v => v.storeCode)} filtersOn={filtersActive(filters)} onToast={setToast} />
+      {withConflicts && <button type="button" onClick={() => setShowConflicts(s => !s)} aria-pressed={showConflicts}
+        className={cn('h-7 px-2 inline-flex items-center gap-1 rounded-lg border text-[12px] font-semibold cursor-pointer',
+          conflictCount ? 'border-amber-300 bg-amber-50 text-amber-800' : 'border-ink-200 bg-ink-0 text-ink-600')}>
+        <AlertTriangle size={12} /> {t.conflicts.title} · {conflictCount}
+      </button>}
+    </div>
+  );
 
   return (
     <div className="rota-root flex-1 min-w-0 flex flex-col overflow-hidden" data-skin={skin}>
@@ -197,13 +275,33 @@ const RotaModule: React.FC = () => {
           <EmptyState onImport={() => fileRef.current?.click()} onDemo={() => handleImport(generateDemoDataset(t.header.demoName))} />
         ) : tab === 'rules' ? (
           <RulesTab onToast={setToast} />
+        ) : tab === 'kanban' ? (
+          <div className="h-full flex flex-col min-h-0">
+            <BalancePanel totals={dayTotals(filtered)} workingDays={workingDays} compact right={balanceRight(true)} />
+            {selected.size > 0 && (
+              <BulkBar
+                selected={selected}
+                parties={partyList}
+                hasRules={Boolean(rules)}
+                onParty={(codes, party) => runMoves(codes.map(code => ({ code, party })))}
+                onMoveDay={(cards, to) => { runMoves(cards.map(c => ({ code: c.code, fromDay: c.day, toDay: to }))); setSelected(new Set()); }}
+                onLock={handleLock}
+                onClear={() => { setSelected(new Set()); setFocusCodes(new Set()); }}
+              />
+            )}
+            <div className="flex-1 min-h-0 flex">
+              <div className="flex-1 min-w-0">
+                <KanbanTab views={filtered} parties={partyList} workingDays={workingDays} checker={checker} selected={selected} focusCodes={focusCodes}
+                  onSelect={setSelected} onOpen={setOpenCode} onDrop={handleDrop} onHover={setHoverCode} />
+              </div>
+              {showConflicts && (
+                <ConflictsPanel checker={checker} views={views} balanceWarning={balanceWarning} onDismissWarning={() => setBalanceWarning(null)}
+                  onFocus={focusStores} onClose={() => setShowConflicts(false)} />
+              )}
+            </div>
+          </div>
         ) : tab === 'analytics' ? (
-          <BalancePanel
-            totals={dayTotals(filtered)}
-            workingDays={workingDays}
-            showWeight
-            right={<OptimizeButton filteredCodes={filtered.map(v => v.storeCode)} filtersOn={filtersActive(filters)} onToast={setToast} />}
-          />
+          <BalancePanel totals={dayTotals(filtered)} workingDays={workingDays} showWeight right={balanceRight(false)} />
         ) : (
           <div className="p-8 text-center text-[13px] text-ink-500">{t.module.tabSoon}</div>
         )}
@@ -214,6 +312,12 @@ const RotaModule: React.FC = () => {
         <span>{saveState === 'saving' ? t.header.saving : saveState === 'saved' ? t.header.saved : ''}</span>
         {ws.dataset && <span className="ml-auto">{f(t.header.importedAt, { date: new Date(ws.dataset.importedAt).toLocaleString(t.locale) })}</span>}
       </div>
+
+      {openView && (
+        <StoreDrawer view={openView} ws={ws} rules={rules} checker={checker} parties={partyList} onClose={() => setOpenCode(null)}
+          onMoved={res => handleResult(res, spreadPct(dayTotals(views), 'volume', workingDays))} />
+      )}
+      {rejection && <RejectionModal info={rejection} onClose={() => setRejection(null)} />}
 
       {importFile && (
         <StoreImportFlow file={importFile} hasData={hasData} onImport={handleImport} onClose={() => setImportFile(null)} />

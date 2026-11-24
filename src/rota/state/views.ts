@@ -90,18 +90,33 @@ export interface RotaFilters {
   formats: string[];
   day: Weekday | 'all';
   onlyChanged: boolean;
+  onlyViolations: boolean;
+  onlyLocked: boolean;
+  onlyUneven: boolean;
   search: string;
 }
 
-export const EMPTY_FILTERS: RotaFilters = { regions: [], parties: [], segments: [], formats: [], day: 'all', onlyChanged: false, search: '' };
+export const EMPTY_FILTERS: RotaFilters = {
+  regions: [], parties: [], segments: [], formats: [], day: 'all', onlyChanged: false, onlyViolations: false, onlyLocked: false, onlyUneven: false, search: '',
+};
 
 export function filtersActive(f: RotaFilters): boolean {
-  return f.regions.length > 0 || f.parties.length > 0 || f.segments.length > 0 || f.formats.length > 0 || f.day !== 'all' || f.onlyChanged || f.search.trim() !== '';
+  return f.regions.length > 0 || f.parties.length > 0 || f.segments.length > 0 || f.formats.length > 0 || f.day !== 'all'
+    || f.onlyChanged || f.onlyViolations || f.onlyLocked || f.onlyUneven || f.search.trim() !== '';
 }
 
-export function applyFilters(views: StoreView[], f: RotaFilters): StoreView[] {
+export interface FilterFlags {
+  /** store code -> has any issue / has the "uneven" warning */
+  issues: Map<string, Array<{ code: string }>>;
+  locked: Map<string, unknown>;
+}
+
+export function applyFilters(views: StoreView[], f: RotaFilters, flags?: FilterFlags): StoreView[] {
   const q = f.search.trim().toLowerCase();
   return views.filter(v =>
+    (!f.onlyViolations || (flags?.issues.get(v.storeCode)?.some(i => i.code !== 'uneven') ?? false)) &&
+    (!f.onlyUneven || (flags?.issues.get(v.storeCode)?.some(i => i.code === 'uneven') ?? false)) &&
+    (!f.onlyLocked || (flags?.locked.has(v.storeCode) ?? false)) &&
     (!f.regions.length || f.regions.includes(v.region)) &&
     (!f.parties.length || f.parties.includes(v.currentParty)) &&
     (!f.segments.length || f.segments.includes(v.segment)) &&
