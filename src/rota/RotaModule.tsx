@@ -25,6 +25,7 @@ import { nameKey } from './core/names';
 import { KanbanDrop, KanbanTab } from './components/kanban/KanbanTab';
 import { BulkBar } from './components/kanban/BulkBar';
 import { MapTab } from './components/map/MapTab';
+import { ScenariosTab } from './components/ScenariosTab';
 import { ConflictsPanel, BalanceWarning } from './components/ConflictsPanel';
 import { StoreDrawer } from './components/StoreDrawer';
 import { RejectionInfo, RejectionModal } from './components/RejectionModal';
@@ -274,6 +275,8 @@ const RotaModule: React.FC = () => {
       <div className="flex-1 min-h-0 overflow-auto bg-ink-50">
         {!hasData && tab !== 'rules' && tab !== 'scenarios' ? (
           <EmptyState onImport={() => fileRef.current?.click()} onDemo={() => handleImport(generateDemoDataset(t.header.demoName))} />
+        ) : tab === 'scenarios' ? (
+          <ScenariosTab onToast={setToast} />
         ) : tab === 'rules' ? (
           <RulesTab onToast={setToast} />
         ) : tab === 'kanban' || tab === 'map' ? (

@@ -14,6 +14,7 @@ import { phaseIterations } from '../engine/pipeline';
 import type { EngineScope } from '../engine/model';
 import { Btn, Modal, MultiSelect } from './ui';
 import { setLastRun } from '../state/lastRun';
+import { newId } from '../rules/types';
 
 type ScopeKind = 'all' | 'regions' | 'parties' | 'filtered';
 const STRICTNESS = [0.5, 1, 2];
@@ -110,6 +111,13 @@ const RunDialog: React.FC<{ onClose: () => void; filteredCodes: string[] | null;
 
   if (result) return <ResultDialog result={result} onClose={onClose} onApply={() => {
     rotaStore.updatePlan(() => result.plan);
+    // every applied run is kept as an "Auto optimization" scenario with a copy of its rules
+    rotaStore.updateScenarios(list => [...list, {
+      id: newId('scen'),
+      name: f(t.scen.autoName, { date: new Date().toLocaleString(t.locale, { dateStyle: 'short', timeStyle: 'short' }) }),
+      kind: 'auto', createdAt: new Date().toISOString(), plan: result.plan,
+      ruleSetId: rules.id, ruleSetName: rules.name, ruleSetSnapshot: rules, runInfo: { seed: result.seed, mode },
+    }]);
     setLastRun(prev => (prev ? { ...prev, appliedAt: new Date().toISOString() } : prev));
     onToast(t.opt.applied);
     onClose();
