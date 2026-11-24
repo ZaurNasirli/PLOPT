@@ -19,7 +19,7 @@ import { CloudSyncButton } from './components/common/CloudSyncButton';
 import { BarriersPanel } from './components/barriers/BarriersPanel';
 import { setRoadBarriers, getBarrierHash, getActiveBarriers, anyBarrierTouchesPath } from './services/barriers/barrierStore';
 import { valhallaLocate } from './services/barriers/valhallaClient';
-import { buildStoreLookup, upsertStores } from './services/storeDirectory';
+import { buildStoreLookup } from './services/storeDirectory';
 import { roadCache } from './services/cloud/roadCache';
 import { buildRouteInsights } from './services/routeInsights';
 import { assignFleetToRoutes } from './services/optimizer/FleetAssignment';
@@ -65,6 +65,9 @@ import { AndroidMobileLayout } from './components/mobile/AndroidMobileLayout';
 import { AndroidDeviceFrame } from './components/mobile/AndroidDeviceFrame';
 import { useTranslation } from './i18n/I18nContext';
 import { ensureRotaLoaded, rotaStore, useRotaWorkspace } from './rota/store/workspace';
+import { applyIncoming, directoryStore, findConflicts, findRecord, IncomingStore, useDirectory } from './directory/directory';
+import { askDirectoryConflicts, DirectoryConflictHost } from './directory/ConflictDialog';
+import { DirectoryPage } from './directory/DirectoryPage';
 
 // The Rota planning module is loaded only when its page is opened
 const RotaModule = React.lazy(() => import('./rota/RotaModule'));
@@ -766,17 +769,9 @@ export default function App() {
   }, [routeVersions]);
 
   // --- Store directory: every store ever imported (synced to the cloud database) ---
-  const [storeDirectory, setStoreDirectory] = useState<StoreRecord[]>(() => {
-    try {
-      const parsed = JSON.parse(localStorage.getItem('store_directory_v1') || 'null');
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  });
-  useEffect(() => {
-    safeSetStorageItem('store_directory_v1', JSON.stringify(storeDirectory));
-  }, [storeDirectory]);
+  // shared with Ritm, Proqnoz and the Stores page; saved by the directory store itself
+  const storeDirectory = useDirectory();
+  const setStoreDirectory = directoryStore.set;
 
   // --- Road barriers (closed roads the router must avoid) ---
   const [barriers, setBarriers] = useState<RoadBarrier[]>(() => {
@@ -868,7 +863,7 @@ export default function App() {
     ];
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storeDirectory.length, roadCacheVersion, language]);
-  const [currentPage, setCurrentPage] = useState<'home' | 'routing' | 'rota'>('routing');
+  const [currentPage, setCurrentPage] = useState<'home' | 'routing' | 'rota' | 'forecast' | 'stores'>('routing');
   const [isTopCollapsed, setIsTopCollapsed] = useState(false);
   const [showFullAnalytics, setShowFullAnalytics] = useState(false);
   const [leftPanelTab, setLeftPanelTab] = useState<LeftPanelTab>('stores');
@@ -1867,7 +1862,7 @@ export default function App() {
     e.target.value = '';
   };
 
-  const processImportedData = (data: any[], mapping: Record<string, string>) => {
+  const processImportedData = async (data: any[], mapping: Record<string, string>) => {
     const cleanDate = (val: any): string => {
       const normalized = normalizeDateStr(val);
       if (normalized) return normalized;
@@ -1976,7 +1971,7 @@ export default function App() {
         trustedIds.add(o.id);
       } else {
         const known = lookupStore(o.code, o.customerName);
-        if (known) {
+        if (known && Number.isFinite(known.lat) && Number.isFinite(known.lng)) {
           o.lat = known.lat;
           o.lng = known.lng;
           restoredCoords++;
@@ -1986,8 +1981,31 @@ export default function App() {
       }
       delete o.__coordsFromFile;
     }
-    const directoryUpdate = upsertStores(storeDirectory, newOrders, trustedIds);
-    setStoreDirectory(directoryUpdate.next);
+    // The file and the directory may disagree (name, region, coordinates): ask which one is the main source
+    const incomingStores = new Map<string, IncomingStore>();
+    for (const o of newOrders) {
+      if (!o.code && !o.customerName) continue;
+      const k = (o.code || o.customerName).trim().toLowerCase();
+      if (incomingStores.has(k)) continue;
+      incomingStores.set(k, {
+        code: o.code || '', name: o.customerName, region: o.region || undefined,
+        lat: trustedIds.has(o.id) ? o.lat : null, lng: trustedIds.has(o.id) ? o.lng : null,
+      });
+    }
+    const incomingList = [...incomingStores.values()];
+    const dirNow = directoryStore.get();
+    const conflicts = findConflicts(dirNow, incomingList);
+    const newStores = incomingList.filter(s => !findRecord(dirNow, s.code, s.name)).length;
+    const resolution = await askDirectoryConflicts(conflicts, 'Yol · Excel', newStores);
+    const resolved = applyIncoming(incomingList, resolution);
+    for (const o of newOrders) {
+      const rec = resolved.get((o.code || o.customerName).trim().toLowerCase().replace(/\s+/g, ' '));
+      if (!rec) continue;
+      // where the directory stays the main source, the orders take its values
+      if (rec.name) o.customerName = rec.name;
+      if (rec.region) o.region = rec.region;
+      if (Number.isFinite(rec.lat) && Number.isFinite(rec.lng)) { o.lat = rec.lat; o.lng = rec.lng; }
+    }
 
     // Reconstruct ready-made routes from orders with route numbers
     const importedRouteGroups = new Map<string, Order[]>();
@@ -2056,8 +2074,8 @@ export default function App() {
     setExcelMapping({ show: false, data: [], headers: [], mapping: {} });
     setSelectedShippingDates([]);
     const directoryNote = [
-      directoryUpdate.added > 0 ? `в справочник добавлено магазинов: ${directoryUpdate.added}` : '',
-      directoryUpdate.updated > 0 ? `обновлено: ${directoryUpdate.updated}` : '',
+      newStores > 0 ? `в справочник добавлено магазинов: ${newStores}` : '',
+      resolution.size > 0 ? `обновлено из файла: ${new Set([...resolution.keys()].map(k => k.split('|')[0])).size}` : '',
       restoredCoords > 0 ? `координаты из справочника: ${restoredCoords}` : '',
       withoutCoords > 0 ? `без координат (поставлены на склад): ${withoutCoords}` : ''
     ].filter(Boolean).join(', ');
@@ -3100,6 +3118,7 @@ export default function App() {
             {mobileContent}
           </AndroidDeviceFrame>
         )}
+        <DirectoryConflictHost />
 
         {/* Global Modals for Mobile */}
         <HelpModal 
@@ -3204,6 +3223,15 @@ export default function App() {
             >
               <Users size={14} /> 
               <span className="hidden md:inline">{t('pageRota')}</span>
+            </Button>
+            <Button 
+              variant={currentPage === 'stores' ? 'primary' : 'ghost'} 
+              size="sm" 
+              onClick={() => setCurrentPage('stores')}
+              className="px-2.5 sm:px-3 h-8 gap-1.5 text-xs font-semibold"
+            >
+              <MapPin size={14} /> 
+              <span className="hidden md:inline">{t('pageStores')}</span>
             </Button>
           </div>
           {currentPage === 'routing' && (
@@ -3329,6 +3357,8 @@ export default function App() {
             </div>
           </div>
         )}
+
+        {currentPage === 'stores' && <DirectoryPage />}
 
         {currentPage === 'rota' && (
           <React.Suspense fallback={<div className="flex-1 grid place-items-center text-muted-foreground">…</div>}>
@@ -4404,6 +4434,7 @@ export default function App() {
       />
     </>
   )}
+  <DirectoryConflictHost />
 </div>
   );
 }

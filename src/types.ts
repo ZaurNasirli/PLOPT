@@ -189,4 +189,18 @@ export interface StoreRecord {
   lastSeen: string;
   /** how many imports contained this store */
   imports: number;
+  /** store directory card (Stores page); all optional */
+  address?: string;
+  contactPerson?: string;
+  phone?: string;
+  /** receiving window, e.g. "07:00 - 23:00" or "7/24" */
+  receivingWindow?: string;
+  /** how to drive in / unload */
+  access?: string;
+  /** vehicle limits (max size / weight, no trailers …) */
+  vehicleLimits?: string;
+  notes?: string;
+  /** shop format (Supermarket, Express …) */
+  format?: string;
+  updatedAt?: string;
 }

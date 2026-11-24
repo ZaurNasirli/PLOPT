@@ -30,6 +30,8 @@ import { AnalyticsTab } from './components/analytics/AnalyticsTab';
 import { ReportTab } from './components/report/ReportTab';
 import { computePlanReport } from './state/planReport';
 import { exportReferenceWorkbook } from './data/excelExport';
+import { applyIncoming, directoryStore, findConflicts, findRecord, IncomingStore, resolvedKey } from '../directory/directory';
+import { askDirectoryConflicts } from '../directory/ConflictDialog';
 import { ConflictsPanel, BalanceWarning } from './components/ConflictsPanel';
 import { StoreDrawer } from './components/StoreDrawer';
 import { RejectionInfo, RejectionModal } from './components/RejectionModal';
@@ -144,7 +146,35 @@ const RotaModule: React.FC = () => {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  const handleImport = useCallback((dataset: RotaDataset) => {
+  const handleImport = useCallback(async (dataset: RotaDataset) => {
+    // the store directory is shared with Yol and Proqnoz: ask where the file and the directory disagree
+    if (!dataset.isDemo) {
+      const incoming: IncomingStore[] = dataset.stores.map(s => ({
+        code: s.storeCode, name: s.storeName, region: s.region, format: s.storeFormat, lat: s.lat, lng: s.lng, receivingWindow: s.receivingTime || undefined,
+      }));
+      const dir = directoryStore.get();
+      const conflicts = findConflicts(dir, incoming);
+      const newCount = incoming.filter(x => !findRecord(dir, x.code, x.name)).length;
+      const resolution = await askDirectoryConflicts(conflicts, dataset.name, newCount);
+      const resolved = applyIncoming(incoming, resolution);
+      dataset = {
+        ...dataset,
+        stores: dataset.stores.map(s => {
+          const r = resolved.get(resolvedKey(s.storeCode, s.storeName));
+          if (!r) return s;
+          const coords = Number.isFinite(r.lat) && Number.isFinite(r.lng);
+          return {
+            ...s,
+            storeName: r.name || s.storeName,
+            region: r.region || s.region,
+            storeFormat: r.format || s.storeFormat,
+            lat: coords ? r.lat : s.lat,
+            lng: coords ? r.lng : s.lng,
+            receivingTime: r.receivingWindow ?? s.receivingTime,
+          };
+        }),
+      };
+    }
     rotaStore.setDataset(dataset);
     setFilters(EMPTY_FILTERS);
     setToast(f(t.importer.imported, { n: int(dataset.stores.length) }));
