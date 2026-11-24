@@ -16,6 +16,8 @@ import { BalancePanel } from './components/BalancePanel';
 import { StoreImportFlow } from './components/StoreImportFlow';
 import { generateDemoDataset } from './data/demo';
 import { RulesTab } from './components/rules/RulesTab';
+import { OptimizeButton } from './components/OptimizePanel';
+import { filtersActive } from './state/views';
 
 export type RotaTab = 'analytics' | 'kanban' | 'map' | 'rules' | 'scenarios' | 'report';
 export type RotaSkin = 'plopt' | 'logisticpro';
@@ -196,7 +198,12 @@ const RotaModule: React.FC = () => {
         ) : tab === 'rules' ? (
           <RulesTab onToast={setToast} />
         ) : tab === 'analytics' ? (
-          <BalancePanel totals={dayTotals(filtered)} workingDays={workingDays} showWeight />
+          <BalancePanel
+            totals={dayTotals(filtered)}
+            workingDays={workingDays}
+            showWeight
+            right={<OptimizeButton filteredCodes={filtered.map(v => v.storeCode)} filtersOn={filtersActive(filters)} onToast={setToast} />}
+          />
         ) : (
           <div className="p-8 text-center text-[13px] text-ink-500">{t.module.tabSoon}</div>
         )}

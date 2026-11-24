@@ -86,3 +86,28 @@ View your app in AI Studio: https://ai.studio/apps/f8d975c5-8921-4049-9ed6-712e3
 - Матрица хранится с точностью до метра/секунды; до 300 точек — 100% реальных дорог (блоки 50×50).
 - **Справочник магазинов**: при импорте Excel все магазины (код, название, координаты, регион) сохраняются;
   если в новом файле нет координат или они ошибочны — подставляются из справочника.
+
+## Rota: shipment days and parties of stores
+
+The **Rota** page plans on which weekdays and in which shipment party every store is shipped.
+Everything lives in `src/rota/`:
+
+- `data/` — store file import (column auto-detection, check dialog), demo data;
+- `rules/` — rule sets, rules Excel file (import in ru/az/en/tr, export, empty template), rules check;
+- `engine/` — the optimizer (port of the Python reference): model, cost, simulated annealing,
+  exact group repair, report; runs in Web Workers (`engine.worker.ts`), seeds of a phase in parallel;
+- `components/` — the tabs; `i18n/` — texts in ru/az/en/tr; `store/` — workspace (IndexedDB + cloud key `rota`).
+
+There are **no default rules**: every party, penalty and algorithm phase comes from the user
+(by hand on the Rules tab or from the rules Excel file).
+
+Two looks are available (Rota → «Стиль»): PL/OPT and LogistikPro. They differ only in CSS variables
+(`src/rota/rota-theme.css`), so either can be made the default without touching components.
+
+Tests: `npm test` (vitest). Acceptance run on the reference data (files in the git-ignored `_rota_import/`):
+
+```bash
+npx tsx scripts/rota-acceptance.ts                # exact mode, fixed seed
+npx tsx scripts/rota-acceptance.ts --fast --seed 7
+npx tsx scripts/rota-acceptance.ts --w Wreg=900,Wparty=800   # try other penalties without editing the file
+```
