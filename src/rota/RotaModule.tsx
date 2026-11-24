@@ -15,6 +15,7 @@ import { FilterBar } from './components/FilterBar';
 import { BalancePanel } from './components/BalancePanel';
 import { StoreImportFlow } from './components/StoreImportFlow';
 import { generateDemoDataset } from './data/demo';
+import { RulesTab } from './components/rules/RulesTab';
 
 export type RotaTab = 'analytics' | 'kanban' | 'map' | 'rules' | 'scenarios' | 'report';
 export type RotaSkin = 'plopt' | 'logisticpro';
@@ -192,6 +193,8 @@ const RotaModule: React.FC = () => {
       <div className="flex-1 min-h-0 overflow-auto bg-ink-50">
         {!hasData && tab !== 'rules' && tab !== 'scenarios' ? (
           <EmptyState onImport={() => fileRef.current?.click()} onDemo={() => handleImport(generateDemoDataset(t.header.demoName))} />
+        ) : tab === 'rules' ? (
+          <RulesTab onToast={setToast} />
         ) : tab === 'analytics' ? (
           <BalancePanel totals={dayTotals(filtered)} workingDays={workingDays} showWeight />
         ) : (
