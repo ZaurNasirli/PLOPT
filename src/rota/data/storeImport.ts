@@ -122,6 +122,7 @@ export function missingRequired(mapping: StoreMapping): StoreField[] {
 
 export interface StoreImportResult {
   stores: RotaStore[];
+  headers: Partial<Record<StoreField, string>>;
   issues: ImportIssue[];
   totalRows: number;
   volumeMode: VolumeMode;
@@ -270,7 +271,9 @@ export function buildStores(sheet: RawSheet, mapping: StoreMapping, volumeMode: 
     }
   }
 
-  return { stores, issues, totalRows: sheet.rows.length, volumeMode };
+  const headers: Partial<Record<StoreField, string>> = {};
+  for (const fld of STORE_FIELDS) if (mapping[fld] >= 0 && sheet.headers[mapping[fld]]) headers[fld] = sheet.headers[mapping[fld]];
+  return { stores, headers, issues, totalRows: sheet.rows.length, volumeMode };
 }
 
 /** Party windows as found in the store file (most frequent value per party) */

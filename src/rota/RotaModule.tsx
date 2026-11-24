@@ -26,6 +26,10 @@ import { KanbanDrop, KanbanTab } from './components/kanban/KanbanTab';
 import { BulkBar } from './components/kanban/BulkBar';
 import { MapTab } from './components/map/MapTab';
 import { ScenariosTab } from './components/ScenariosTab';
+import { AnalyticsTab } from './components/analytics/AnalyticsTab';
+import { ReportTab } from './components/report/ReportTab';
+import { computePlanReport } from './state/planReport';
+import { exportReferenceWorkbook } from './data/excelExport';
 import { ConflictsPanel, BalanceWarning } from './components/ConflictsPanel';
 import { StoreDrawer } from './components/StoreDrawer';
 import { RejectionInfo, RejectionModal } from './components/RejectionModal';
@@ -179,6 +183,8 @@ const RotaModule: React.FC = () => {
     setSelected(new Set(views.filter(v => set.has(v.storeCode)).flatMap(v => v.currentDays.map(d => `${v.storeCode}__${d}`))));
   }, [views]);
   const openView = openCode ? views.find(v => v.storeCode === openCode) ?? null : null;
+  // the full report (chain moves, violations with reasons) is only computed when the report tab is open
+  const planReport = useMemo(() => (tab === 'report' ? computePlanReport(ws, rules, rulesComplete) : null), [tab, ws, rules, rulesComplete]);
   const conflictCount = useMemo(() => {
     let n = checker.groupIssues.length;
     for (const l of checker.storeIssues.values()) if (l.some(i => i.severity === 'hard')) n++;
@@ -311,7 +317,10 @@ const RotaModule: React.FC = () => {
             </div>
           </div>
         ) : tab === 'analytics' ? (
-          <BalancePanel totals={dayTotals(filtered)} workingDays={workingDays} showWeight right={balanceRight(false)} />
+          <AnalyticsTab views={filtered} rules={rules} rulesComplete={rulesComplete} workingDays={workingDays} right={balanceRight(false)} onToast={setToast}
+            onExportExcel={() => exportReferenceWorkbook(ws, rules, views, computePlanReport(ws, rules, rulesComplete), workingDays, i18n)} />
+        ) : tab === 'report' ? (
+          <ReportTab views={filtered} rules={rules} report={planReport} workingDays={workingDays} onToast={setToast} onOpen={setOpenCode} />
         ) : (
           <div className="p-8 text-center text-[13px] text-ink-500">{t.module.tabSoon}</div>
         )}

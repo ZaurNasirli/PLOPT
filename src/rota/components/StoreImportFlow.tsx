@@ -75,7 +75,7 @@ export const StoreImportFlow: React.FC<{
       onClose={onClose}
       onRemap={() => setStep({ kind: 'mapping', sheet: step.sheet, mapping: step.mapping, mode: step.mode })}
       onImport={() => {
-        onImport({ name: file.name, importedAt: new Date().toISOString(), volumeMode: step.mode, stores: step.result.stores });
+        onImport({ name: file.name, importedAt: new Date().toISOString(), volumeMode: step.mode, stores: step.result.stores, headers: step.result.headers });
         onClose();
       }}
     />

@@ -39,6 +39,12 @@
 .rota-root {
   color: var(--color-ink-900);
   background: var(--color-ink-50);
+  /* charts: before / after (validated pair), diverging poles for heat maps, neutral midpoint */
+  --rota-viz-before: #eb6834;
+  --rota-viz-after: #2a78d6;
+  --rota-viz-neg: #2a78d6;
+  --rota-viz-pos: #e34948;
+  --rota-viz-mid: var(--color-ink-100);
 }
 
 /* LogistikPro look: white cards, Tailwind slate/blue, always light */
@@ -82,6 +88,10 @@
 
 .dark .rota-root[data-skin="plopt"] {
   color-scheme: dark;
+  --rota-viz-before: #d95926;
+  --rota-viz-after: #3987e5;
+  --rota-viz-neg: #3987e5;
+  --rota-viz-pos: #e66767;
   --color-ink-300: hsl(222 14% 34%);
   --color-ink-400: hsl(218 12% 50%);
   --color-ink-600: hsl(216 16% 76%);

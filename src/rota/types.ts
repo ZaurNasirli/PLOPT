@@ -52,6 +52,8 @@ export interface RotaDataset {
   stores: RotaStore[];
   /** true when loaded with the "Load demo" button */
   isDemo?: boolean;
+  /** header of the store file for each field (to export in the same layout) */
+  headers?: Partial<Record<string, string>>;
 }
 
 /** A store with its current plan, as the screens show it. */
