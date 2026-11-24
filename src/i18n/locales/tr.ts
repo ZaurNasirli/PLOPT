@@ -2,8 +2,8 @@ export const tr = {
   // Common & Header
   appTitle: 'LOJİSTİK',
   appSubtitle: 'Akıllı rota planlama ve teslimat optimizasyonu',
-  pageRouting: 'Rotalama',
-  pageRota: 'Rota',
+  pageRouting: 'Yol',
+  pageRota: 'Ritm',
   homePage: 'ANA SAYFA',
   emptyPageNotice: 'Burası henüz boş',
   btnRouter: 'Rota Motoru',

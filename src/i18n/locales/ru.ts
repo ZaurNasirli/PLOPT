@@ -2,8 +2,8 @@ export const ru = {
   // Common & Header
   appTitle: 'ЛОГИСТИКА',
   appSubtitle: 'Интеллектуальная маршрутизация и оптимизация доставки',
-  pageRouting: 'Маршрутизация',
-  pageRota: 'Рота',
+  pageRouting: 'Yol',
+  pageRota: 'Ritm',
   homePage: 'ГЛАВНАЯ СТРАНИЦА',
   emptyPageNotice: 'Здесь пока пусто',
   btnRouter: 'Маршрутизатор',

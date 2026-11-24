@@ -87,9 +87,9 @@ View your app in AI Studio: https://ai.studio/apps/f8d975c5-8921-4049-9ed6-712e3
 - **Справочник магазинов**: при импорте Excel все магазины (код, название, координаты, регион) сохраняются;
   если в новом файле нет координат или они ошибочны — подставляются из справочника.
 
-## Rota: shipment days and parties of stores
+## Ritm (module «Rota» in the code): shipment days and parties of stores
 
-The **Rota** page plans on which weekdays and in which shipment party every store is shipped.
+The **Ritm** page plans on which weekdays and in which shipment party every store is shipped.
 Everything lives in `src/rota/`:
 
 - `data/` — store file import (column auto-detection, check dialog), demo data;

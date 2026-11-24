@@ -24,7 +24,7 @@ export const ru = {
     selected: 'Выбрано: {n}',
   },
   module: {
-    title: 'Рота',
+    title: 'Ritm',
     subtitle: 'Дни и партии отправок магазинов',
     tabs: {
       analytics: 'Аналитика',
@@ -45,7 +45,7 @@ export const ru = {
     undo: 'Отменить (Ctrl+Z)',
     redo: 'Повторить (Ctrl+Y)',
     skin: 'Стиль',
-    skinPlopt: 'PL/OPT',
+    skinPlopt: 'Planora',
     skinLogisticPro: 'ЛогистикПро',
     stores: '{n} магазинов',
     importedAt: 'загружено {date}',
@@ -645,12 +645,12 @@ export const ru = {
     partyCol: 'Партия',
     copy: 'Копировать',
     copied: 'Скопировано',
-    workspace: 'Данные Роты',
+    workspace: 'Данные Ritm',
     exportJson: 'Экспорт в JSON',
     importJson: 'Импорт из JSON',
-    importConfirm: 'Заменить все данные Роты (магазины, план, правила, сценарии) содержимым файла «{file}»?',
-    importBad: 'Это не файл данных Роты',
-    imported: 'Данные Роты загружены из файла',
+    importConfirm: 'Заменить все данные Ritm (магазины, план, правила, сценарии) содержимым файла «{file}»?',
+    importBad: 'Это не файл данных Ritm',
+    imported: 'Данные Ritm загружены из файла',
     measures: {
       spreadV: 'Разброс m³',
       spreadP: 'Разброс шт',
@@ -790,7 +790,7 @@ export const ru = {
     changesFile: 'Изменения_магазинов',
   },
   storage: {
-    loadError: 'Не удалось прочитать сохранённые данные Роты: {error}',
+    loadError: 'Не удалось прочитать сохранённые данные Ritm: {error}',
   },
 };
 

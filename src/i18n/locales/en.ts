@@ -2,8 +2,8 @@ export const en = {
   // Common & Header
   appTitle: 'LOGISTICS',
   appSubtitle: 'Intelligent route planning and delivery optimization',
-  pageRouting: 'Routing',
-  pageRota: 'Rota',
+  pageRouting: 'Yol',
+  pageRota: 'Ritm',
   homePage: 'HOME PAGE',
   emptyPageNotice: 'Nothing here yet',
   btnRouter: 'Router Engine',

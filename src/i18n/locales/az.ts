@@ -2,8 +2,8 @@ export const az = {
   // Common & Header
   appTitle: 'LOGİSTİKA',
   appSubtitle: 'İntellektual marşrutlaşdırma və çatdırılmanın optimallaşdırılması',
-  pageRouting: 'Marşrutlaşdırma',
-  pageRota: 'Rota',
+  pageRouting: 'Yol',
+  pageRota: 'Ritm',
   homePage: 'ƏSAS SƏHİFƏ',
   emptyPageNotice: 'Burada hələ heç nə yoxdur',
   btnRouter: 'Marşrutlaşdırıcı',

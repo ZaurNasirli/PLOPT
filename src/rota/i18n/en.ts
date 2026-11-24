@@ -25,7 +25,7 @@ export const en: RotaDict = {
     selected: 'Selected: {n}',
   },
   module: {
-    title: 'Rota',
+    title: 'Ritm',
     subtitle: 'Store shipment days and parties',
     tabs: {
       analytics: 'Analytics',
@@ -46,7 +46,7 @@ export const en: RotaDict = {
     undo: 'Undo (Ctrl+Z)',
     redo: 'Redo (Ctrl+Y)',
     skin: 'Style',
-    skinPlopt: 'PL/OPT',
+    skinPlopt: 'Planora',
     skinLogisticPro: 'LogistikPro',
     stores: '{n} stores',
     importedAt: 'loaded {date}',
@@ -646,12 +646,12 @@ export const en: RotaDict = {
     partyCol: 'Party',
     copy: 'Copy',
     copied: 'Copied',
-    workspace: 'Rota data',
+    workspace: 'Ritm data',
     exportJson: 'Export to JSON',
     importJson: 'Import from JSON',
-    importConfirm: 'Replace all Rota data (stores, plan, rules, scenarios) with the contents of "{file}"?',
-    importBad: 'This is not a Rota data file',
-    imported: 'Rota data loaded from the file',
+    importConfirm: 'Replace all Ritm data (stores, plan, rules, scenarios) with the contents of "{file}"?',
+    importBad: 'This is not a Ritm data file',
+    imported: 'Ritm data loaded from the file',
     measures: {
       spreadV: 'm³ spread',
       spreadP: 'Pieces spread',
@@ -791,6 +791,6 @@ export const en: RotaDict = {
     changesFile: 'Store_changes',
   },
   storage: {
-    loadError: 'Could not read the saved Rota data: {error}',
+    loadError: 'Could not read the saved Ritm data: {error}',
   },
 };

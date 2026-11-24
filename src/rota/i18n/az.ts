@@ -25,7 +25,7 @@ export const az: RotaDict = {
     selected: 'Seçilib: {n}',
   },
   module: {
-    title: 'Rota',
+    title: 'Ritm',
     subtitle: 'Mağazalara göndərmə günləri və partiyaları',
     tabs: {
       analytics: 'Analiz',
@@ -46,7 +46,7 @@ export const az: RotaDict = {
     undo: 'Geri al (Ctrl+Z)',
     redo: 'Təkrarla (Ctrl+Y)',
     skin: 'Görünüş',
-    skinPlopt: 'PL/OPT',
+    skinPlopt: 'Planora',
     skinLogisticPro: 'LogistikPro',
     stores: '{n} mağaza',
     importedAt: 'yüklənib {date}',
@@ -646,12 +646,12 @@ export const az: RotaDict = {
     partyCol: 'Partiya',
     copy: 'Kopyala',
     copied: 'Kopyalandı',
-    workspace: 'Rota məlumatları',
+    workspace: 'Ritm məlumatları',
     exportJson: 'JSON-a ixrac',
     importJson: 'JSON-dan idxal',
-    importConfirm: 'Bütün Rota məlumatları (mağazalar, plan, qaydalar, ssenarilər) «{file}» faylının məzmunu ilə əvəz olunsun?',
-    importBad: 'Bu Rota məlumat faylı deyil',
-    imported: 'Rota məlumatları fayldan yükləndi',
+    importConfirm: 'Bütün Ritm məlumatları (mağazalar, plan, qaydalar, ssenarilər) «{file}» faylının məzmunu ilə əvəz olunsun?',
+    importBad: 'Bu Ritm məlumat faylı deyil',
+    imported: 'Ritm məlumatları fayldan yükləndi',
     measures: {
       spreadV: 'm³ kənarlaşması',
       spreadP: 'Ədəd kənarlaşması',
@@ -791,6 +791,6 @@ export const az: RotaDict = {
     changesFile: 'Magaza_deyisiklikleri',
   },
   storage: {
-    loadError: 'Rotanın saxlanmış məlumatlarını oxumaq olmadı: {error}',
+    loadError: 'Ritm-in saxlanmış məlumatlarını oxumaq olmadı: {error}',
   },
 };

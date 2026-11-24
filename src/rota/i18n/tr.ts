@@ -25,7 +25,7 @@ export const tr: RotaDict = {
     selected: 'Seçili: {n}',
   },
   module: {
-    title: 'Rota',
+    title: 'Ritm',
     subtitle: 'Mağaza sevkiyat günleri ve partileri',
     tabs: {
       analytics: 'Analiz',
@@ -46,7 +46,7 @@ export const tr: RotaDict = {
     undo: 'Geri al (Ctrl+Z)',
     redo: 'Yinele (Ctrl+Y)',
     skin: 'Görünüm',
-    skinPlopt: 'PL/OPT',
+    skinPlopt: 'Planora',
     skinLogisticPro: 'LogistikPro',
     stores: '{n} mağaza',
     importedAt: 'yüklendi {date}',
@@ -646,12 +646,12 @@ export const tr: RotaDict = {
     partyCol: 'Parti',
     copy: 'Kopyala',
     copied: 'Kopyalandı',
-    workspace: 'Rota verileri',
+    workspace: 'Ritm verileri',
     exportJson: 'JSON\'a aktar',
     importJson: 'JSON\'dan içe aktar',
-    importConfirm: 'Tüm Rota verileri (mağazalar, plan, kurallar, senaryolar) «{file}» dosyasının içeriğiyle değiştirilsin mi?',
-    importBad: 'Bu bir Rota veri dosyası değil',
-    imported: 'Rota verileri dosyadan yüklendi',
+    importConfirm: 'Tüm Ritm verileri (mağazalar, plan, kurallar, senaryolar) «{file}» dosyasının içeriğiyle değiştirilsin mi?',
+    importBad: 'Bu bir Ritm veri dosyası değil',
+    imported: 'Ritm verileri dosyadan yüklendi',
     measures: {
       spreadV: 'm³ sapması',
       spreadP: 'Adet sapması',
@@ -791,6 +791,6 @@ export const tr: RotaDict = {
     changesFile: 'Magaza_degisiklikleri',
   },
   storage: {
-    loadError: 'Rota\'nın kayıtlı verileri okunamadı: {error}',
+    loadError: 'Ritm\'in kayıtlı verileri okunamadı: {error}',
   },
 };
