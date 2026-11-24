@@ -254,9 +254,9 @@ export interface RouteScheduleResult {
 }
 
 /**
- * Evaluates route schedule across all stops.
- * Calculates total driving time, total service time, early wait time, and minutes of lateness.
- * Formula: Driving time + Waiting time + Service time = Total route duration.
+ * Evaluates route duration across all stops: driving time + service time.
+ * Delivery time slots are symbolic labels and are NOT simulated, so waiting, lateness and
+ * violations are always 0 (the fields are kept so older code and saved routes keep working).
  */
 export function evaluateRouteSchedule(
   orderIndices: number[],
@@ -301,21 +301,7 @@ export function evaluateRouteSchedule(
     currentTime += travelTime;
     totalDriving += travelTime;
 
-    // Check time window of the customer
-    if (order && !isSameStoreAsPrev) {
-      const window = parseTimeSlot(order.timeSlot);
-      if (currentTime < window.startMinutes) {
-        // Arrived early: driver waits until customer window opens
-        const wait = window.startMinutes - currentTime;
-        totalWaiting += wait;
-        currentTime = window.startMinutes;
-      } else if (currentTime > window.endMinutes) {
-        // Arrived late: record violation
-        const lateness = currentTime - window.endMinutes;
-        totalLateness += lateness;
-        violations++;
-      }
-    }
+    // Time slots ("Утро" / "День" / "Вечер") are only labels: no waiting, no lateness, no violations.
 
     // Add service time once per unique physical store stop
     if (!isSameStoreAsPrev) {

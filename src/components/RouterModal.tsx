@@ -467,44 +467,6 @@ export const RouterModal: React.FC<RouterModalProps> = ({
                   </div>
 
                   <div className="md:col-span-2 flex flex-col justify-between gap-2.5">
-                    {/* Time Window Mode Selector (Requirement 4) */}
-                    <div className="p-2.5 rounded-xl border bg-muted/20 space-y-1.5">
-                      <label className="text-[11px] font-bold text-foreground block">
-                        Режим временных окон (Time Windows):
-                      </label>
-                      <div className="grid grid-cols-2 gap-1.5 p-1 bg-background rounded-lg border text-xs">
-                        <button
-                          type="button"
-                          onClick={() => setRoutingLimits({ ...routingLimits, timeWindowMode: 'soft' })}
-                          className={cn(
-                            "py-1 px-2 rounded text-[11px] font-semibold transition-all cursor-pointer text-center",
-                            (routingLimits.timeWindowMode || 'soft') === 'soft'
-                              ? "bg-primary text-primary-foreground font-bold shadow-xs"
-                              : "text-muted-foreground hover:text-foreground"
-                          )}
-                        >
-                          SOFT (Штрафы)
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setRoutingLimits({ ...routingLimits, timeWindowMode: 'hard' })}
-                          className={cn(
-                            "py-1 px-2 rounded text-[11px] font-semibold transition-all cursor-pointer text-center",
-                            routingLimits.timeWindowMode === 'hard'
-                              ? "bg-rose-600 text-white font-bold shadow-xs"
-                              : "text-muted-foreground hover:text-foreground"
-                          )}
-                        >
-                          HARD (Строгий)
-                        </button>
-                      </div>
-                      <span className="text-[9px] text-muted-foreground block leading-tight">
-                        {routingLimits.timeWindowMode === 'hard'
-                          ? 'Маршрут отбраковывается при малейшем опоздании'
-                          : 'Опоздания допустимы, но получают прогрессивный штраф'}
-                      </span>
-                    </div>
-
                     <label className="text-xs font-medium flex items-center gap-2.5 cursor-pointer select-none border rounded-xl p-2 bg-accent/20 hover:bg-accent/40 transition-colors">
                       <input
                         type="checkbox"

@@ -200,14 +200,10 @@ export const EnhancedKpiView: React.FC<EnhancedKpiViewProps> = ({
               </span>
             </div>
 
-            <div className="grid grid-cols-3 gap-2 text-[10px]">
+            <div className="grid grid-cols-2 gap-2 text-[10px]">
               <div className="p-2 rounded-lg border bg-muted/20 space-y-0.5">
                 <span className="text-muted-foreground block text-[9px]">Движение (Driving):</span>
                 <span className="font-bold text-foreground text-xs">{operational.totalDrivingMinutes} мин</span>
-              </div>
-              <div className="p-2 rounded-lg border bg-amber-500/10 border-amber-500/20 space-y-0.5">
-                <span className="text-amber-700 dark:text-amber-300 block text-[9px]">Ожидание (Waiting):</span>
-                <span className="font-bold text-amber-700 dark:text-amber-300 text-xs">{operational.totalWaitingMinutes} мин</span>
               </div>
               <div className="p-2 rounded-lg border bg-muted/20 space-y-0.5">
                 <span className="text-muted-foreground block text-[9px]">Сервис (Service):</span>

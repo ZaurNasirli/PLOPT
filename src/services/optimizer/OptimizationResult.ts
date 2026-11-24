@@ -68,20 +68,13 @@ export function generateRouteExplanation(
   let efficiencyBadge = 'Высокая плотность пути';
   if (detourRatio > 1.45) efficiencyBadge = 'Умеренный разброс';
 
-  let timeWindowBadge = 'Окна доставки соблюдены (100%)';
-  if (schedule.violationsCount > 0) {
-    timeWindowBadge = `Задержка: ${schedule.violationsCount} точек`;
-  }
+  const timeWindowBadge = 'Время суток — символическая метка';
 
   const highlights: string[] = [
     `Компактный ${corridorName}`,
     `Эффективность транспорта: ${truckName || 'Стандарт'} (${totalW} кг / ${Math.round(totalV * 10) / 10} м³)`,
-    `Длина пути: ${matrix.calculateRoundTripDistance(orderIndices)} км, ${schedule.totalDurationMinutes} мин в рейсе (включая ${schedule.totalWaitingMinutes} мин ожидания окон)`
+    `Длина пути: ${matrix.calculateRoundTripDistance(orderIndices)} км, ${schedule.totalDurationMinutes} мин в рейсе`
   ];
-
-  if (schedule.violationsCount === 0) {
-    highlights.push('Идеальное соответствие временным интервалам');
-  }
 
   return {
     corridorName,
@@ -279,9 +272,7 @@ export function calculateRouteQualityScore(
     `Единый географический вектор: ${corridorName}`,
     `Высокая загрузка по объёму: ${vUtil}% (${Math.round(totalV * 10) / 10} м³ / ${maxV} м³)`,
     `Загрузка по весу в пределах нормы: ${wUtil}% (${totalW} кг / ${maxW} кг)`,
-    schedule.violationsCount === 0 
-      ? 'Окна доставки полностью соблюдены (0 нарушений)' 
-      : `Временные интервалы: задержка на ${schedule.violationsCount} точках`,
+    `Время рейса: ${schedule.totalDurationMinutes} мин (движение + разгрузка)`,
     `Компактность дорожного пути: коэффициент извилистости ${detourRatio.toFixed(2)}x (${distKm} км)`
   ];
 

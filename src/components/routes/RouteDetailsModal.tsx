@@ -29,7 +29,6 @@ import { cn } from '../../lib/utils';
 import { getRouteDistanceInfo, formatDurationMinutes, calculateRouteLegs } from '../../services/distanceHelper';
 import { validateSingleRoute } from '../../services/routeValidator';
 import { getCorridorSectorName } from '../../services/optimizer';
-import { parseTimeSlot } from '../../services/optimizer/ConstraintValidator';
 import { useTranslation } from '../../i18n/I18nContext';
 
 interface RouteDetailsModalProps {
@@ -117,21 +116,8 @@ export const RouteDetailsModal: React.FC<RouteDetailsModalProps> = ({
     const drivingMin = distInfo.roadDurationMin ?? Math.max(1, Math.round(((distInfo.roadDistanceKm || distInfo.straightDistanceKm) / 38) * 60));
     const serviceMin = orders.length * servicePerStop;
 
-    let currentMin = 8 * 60; // 08:00
-    let waitMin = 0;
-    const avgDriveBetween = orders.length > 0 ? drivingMin / (orders.length + 1) : 0;
-    for (const o of orders) {
-      currentMin += avgDriveBetween;
-      if (o.timeSlot) {
-        const slot = parseTimeSlot(o.timeSlot);
-        if (currentMin < slot.startMinutes) {
-          const w = slot.startMinutes - currentMin;
-          waitMin += w;
-          currentMin = slot.startMinutes;
-        }
-      }
-      currentMin += servicePerStop;
-    }
+    // Time slots are symbolic labels: no waiting time is simulated
+    const waitMin = 0;
     const totalMin = Math.round(drivingMin + waitMin + serviceMin);
     return {
       drivingMin: Math.round(drivingMin),
@@ -474,10 +460,10 @@ export const RouteDetailsModal: React.FC<RouteDetailsModalProps> = ({
 
             <div>
               <span className="text-muted-foreground">Время рейса: </span>
-              <span className="font-bold text-foreground text-sm" title={`Движение: ${timeBreakdown.drivingMin} мин, Ожидание: ${timeBreakdown.waitingMin} мин, Сервис: ${timeBreakdown.serviceMin} мин`}>
+              <span className="font-bold text-foreground text-sm" title={`Движение: ${timeBreakdown.drivingMin} мин, Сервис: ${timeBreakdown.serviceMin} мин`}>
                 {timeBreakdown.totalMin} мин
                 <span className="text-[11px] text-muted-foreground font-normal ml-1">
-                  ({timeBreakdown.drivingMin}м движ. + {timeBreakdown.waitingMin}м ожид. + {timeBreakdown.serviceMin}м серв.)
+                  ({timeBreakdown.drivingMin}м движ. + {timeBreakdown.serviceMin}м серв.)
                 </span>
               </span>
             </div>
@@ -538,8 +524,7 @@ export const RouteDetailsModal: React.FC<RouteDetailsModalProps> = ({
                       { label: 'Загрузка объёма (Volume)', val: qualityScore.volume, color: 'bg-emerald-500' },
                       { label: 'Дистанция (Distance)', val: qualityScore.distance, color: 'bg-blue-500' },
                       { label: 'Длительность рейса (Duration)', val: qualityScore.duration, color: 'bg-sky-500' },
-                      { label: 'Временные окна (Time Windows)', val: qualityScore.timeWindows, color: 'bg-teal-500' },
-                      { label: 'Баланс остановок (Balance)', val: qualityScore.balance, color: 'bg-violet-500' }
+                                      { label: 'Баланс остановок (Balance)', val: qualityScore.balance, color: 'bg-violet-500' }
                     ].map((item, qIdx) => (
                       <div key={`score-item-${item.label}-${qIdx}`} className="p-3 bg-card rounded-xl border space-y-2">
                         <div className="flex justify-between items-center">
@@ -578,28 +563,20 @@ export const RouteDetailsModal: React.FC<RouteDetailsModalProps> = ({
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 text-sm font-bold text-foreground">
                       <Clock size={18} className="text-sky-500" />
-                      <span>Баланс времени рейса (Total Duration = Driving + Waiting + Service)</span>
+                      <span>Баланс времени рейса (Total Duration = Driving + Service)</span>
                     </div>
                     <span className="text-xs font-black text-foreground">
                       Итого: {timeBreakdown.totalMin} мин ({formatDurationMinutes(timeBreakdown.totalMin)})
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs pt-1">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs pt-1">
                     <div className="p-3 rounded-xl border bg-muted/20 space-y-1">
                       <span className="text-[11px] text-muted-foreground flex items-center gap-1">
                         <Navigation size={12} className="text-sky-500" /> Движение (Driving):
                       </span>
                       <div className="text-base font-bold text-foreground">{timeBreakdown.drivingMin} мин</div>
                       <span className="text-[10px] text-muted-foreground">Чистое время в пути</span>
-                    </div>
-
-                    <div className="p-3 rounded-xl border bg-amber-500/10 border-amber-500/30 space-y-1">
-                      <span className="text-[11px] text-amber-700 dark:text-amber-300 font-semibold flex items-center gap-1">
-                        <Clock size={12} /> Ожидание (Waiting):
-                      </span>
-                      <div className="text-base font-bold text-amber-700 dark:text-amber-300">{timeBreakdown.waitingMin} мин</div>
-                      <span className="text-[10px] text-amber-700/80 dark:text-amber-300/80">Ожидание открытия окон</span>
                     </div>
 
                     <div className="p-3 rounded-xl border bg-muted/20 space-y-1">
@@ -632,7 +609,7 @@ export const RouteDetailsModal: React.FC<RouteDetailsModalProps> = ({
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs pt-1">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs pt-1">
                     <div className="p-3 rounded-xl border bg-muted/20 space-y-1">
                       <span className="text-[11px] text-muted-foreground flex items-center gap-1">
                         <Fuel size={12} /> Топливо:

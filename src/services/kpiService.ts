@@ -3,7 +3,7 @@
 
 import { Route, Order } from '../types';
 import { RoutingLimits } from './routingService';
-import { getEffectiveCapacityLimit, parseTimeSlot } from './optimizer/ConstraintValidator';
+import { getEffectiveCapacityLimit } from './optimizer/ConstraintValidator';
 
 export interface RouteDetailKpi {
   id: string;
@@ -161,24 +161,8 @@ export class KpiService {
       const drivingDurationMin = route.drivingDurationMin ?? route.roadDurationMin ?? (route.distance ? Math.max(1, Math.round((route.distance / 38) * 60)) : Math.round((customerCount * 6) + (route.distance * 1.5)));
       const serviceDurationMin = route.serviceDurationMin ?? (customerCount * servicePerStop);
 
-      // Compute waiting time if not already stored on route
-      let waitingDurationMin = route.waitingDurationMin ?? 0;
-      if (route.waitingDurationMin === undefined && routeOrders.length > 0) {
-        let currentMin = 8 * 60; // 08:00
-        const avgDrive = drivingDurationMin / (customerCount + 1);
-        for (const o of routeOrders) {
-          currentMin += avgDrive;
-          if (o.timeSlot) {
-            const slot = parseTimeSlot(o.timeSlot);
-            if (currentMin < slot.startMinutes) {
-              waitingDurationMin += (slot.startMinutes - currentMin);
-              currentMin = slot.startMinutes;
-            }
-          }
-          currentMin += servicePerStop;
-        }
-        waitingDurationMin = Math.round(waitingDurationMin);
-      }
+      // Time slots are symbolic labels: no waiting time is simulated
+      const waitingDurationMin = 0;
 
       const totalDurationMin = route.totalDurationMin ?? route.durationMinutes ?? Math.round(drivingDurationMin + waitingDurationMin + serviceDurationMin);
       const durationMinutes = totalDurationMin;

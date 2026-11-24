@@ -3,7 +3,7 @@ import type { RoutingLimits } from '../routingService';
 import { calculateDistance } from '../geo';
 import { RoadMatrixLookup } from './RoadMatrix';
 import { SmartVRPConfig } from './types';
-import { checkHardLimits, getRouteCapacities, parseTimeSlot, evaluateRouteSchedule } from './ConstraintValidator';
+import { checkHardLimits, getRouteCapacities } from './ConstraintValidator';
 import { buildCapacityAwareClusters } from './Clustering';
 import { 
   getDepotAngle, 
@@ -130,20 +130,6 @@ export function evaluateInsertionCost(
     return Infinity;
   }
 
-  const candidateRoute = [...route.slice(0, pos), candidateNode, ...route.slice(pos)];
-  if (limits.timeWindowMode === 'hard' && candidateRoute.length > 1) {
-    const sched = evaluateRouteSchedule(
-      candidateRoute,
-      matrix,
-      ordersMap,
-      limits.serviceTimeMinutes ?? config.defaultServiceTimeMinutes ?? 10,
-      (config.depotStartHour ?? 8) * 60
-    );
-    if (sched.violationsCount > 0) {
-      return Infinity;
-    }
-  }
-
   const { maxW, maxV } = getRouteCapacities(newOrders, limits);
   const totalW = newOrders.reduce((s, o) => s + o.weight, 0);
   const totalV = newOrders.reduce((s, o) => s + o.volume, 0);
@@ -181,21 +167,6 @@ export function evaluateInsertionCost(
     }
   }
 
-  // 5. Time window penalty (soft)
-  let twPenalty = 0;
-  if (candidateOrder.timeSlot && prevNode > 0) {
-    const prevOrder = ordersMap[prevNode - 1];
-    if (prevOrder && prevOrder.timeSlot) {
-      const twPrev = parseTimeSlot(prevOrder.timeSlot);
-      const twCand = parseTimeSlot(candidateOrder.timeSlot);
-      if (twPrev.endMinutes < twCand.startMinutes - 180) {
-        twPenalty += 2.0; // Big gap between delivery windows
-      } else if (twCand.endMinutes < twPrev.startMinutes) {
-        twPenalty += 5.0; // Inverted delivery windows
-      }
-    }
-  }
-
   // Bonus if candidate shares a mustStayTogether group with an order already in this route
   let groupBonus = 0;
   if (limits.mustStayTogether && limits.mustStayTogether.length > 0) {
@@ -213,7 +184,6 @@ export function evaluateInsertionCost(
     config.capacityUtilizationWeight * underloadPenalty +
     config.geographicCompactnessWeight * dirPenalty +
     config.regionConsistencyWeight * regionPenalty +
-    config.timeWindowWeight * twPenalty +
     groupBonus;
 
   return cost;
@@ -267,8 +237,6 @@ export function findBestInsertion(
     config.capacityUtilizationWeight * underloadPenalty +
     config.geographicCompactnessWeight * dirPenalty +
     groupBonus;
-  const twCand = candidateOrder.timeSlot ? parseTimeSlot(candidateOrder.timeSlot) : null;
-  const hardTw = limits.timeWindowMode === 'hard';
 
   let bestIndex = -1;
   let minCost = Infinity;
@@ -281,17 +249,11 @@ export function findBestInsertion(
     const deltaDur = matrix.getDuration(prevNode, candidateNode) + matrix.getDuration(candidateNode, nextNode) - matrix.getDuration(prevNode, nextNode);
 
     let regionPenalty = 0;
-    let twPenalty = 0;
     if (prevNode > 0) {
       const prevOrder = ordersMap[prevNode - 1];
       if (prevOrder && prevOrder.region !== candidateOrder.region) {
         const d = calculateDistance(prevOrder.lat, prevOrder.lng, candidateOrder.lat, candidateOrder.lng);
         regionPenalty += d > 3.5 ? 4.0 : 0.5;
-      }
-      if (twCand && prevOrder && prevOrder.timeSlot) {
-        const twPrev = parseTimeSlot(prevOrder.timeSlot);
-        if (twPrev.endMinutes < twCand.startMinutes - 180) twPenalty += 2.0;
-        else if (twCand.endMinutes < twPrev.startMinutes) twPenalty += 5.0;
       }
     }
     if (nextNode > 0) {
@@ -306,20 +268,9 @@ export function findBestInsertion(
       config.distanceWeight * deltaDist +
       config.durationWeight * (deltaDur * 0.4) +
       config.regionConsistencyWeight * regionPenalty +
-      config.timeWindowWeight * twPenalty +
       fixedCost;
 
     if (cost >= minCost) continue;
-
-    if (hardTw) {
-      const candidateRoute = [...route.slice(0, pos), candidateNode, ...route.slice(pos)];
-      const sched = evaluateRouteSchedule(
-        candidateRoute, matrix, ordersMap,
-        limits.serviceTimeMinutes ?? config.defaultServiceTimeMinutes ?? 10,
-        (config.depotStartHour ?? 8) * 60
-      );
-      if (sched.violationsCount > 0) continue;
-    }
 
     minCost = cost;
     bestIndex = pos;
