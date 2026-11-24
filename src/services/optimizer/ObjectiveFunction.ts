@@ -4,6 +4,7 @@ import { WAREHOUSE_LOCATION } from '../../mockData';
 import { calculateDistance } from '../geo';
 import { RoadMatrixLookup } from './RoadMatrix';
 import { SmartVRPConfig, normaliseWeights } from './types';
+import { assignFleet, hasFleetLimits } from './FleetAssignment';
 import { 
   checkHardLimits, 
   getRouteCapacities, 
@@ -190,6 +191,47 @@ interface EvalCache {
   sets: Map<string, SetMetrics>;
   routes: Map<string, RouteMetrics>;
   fleetVolume: number;
+  /** Instance constants used to normalise the plan cost (same for every candidate plan) */
+  minVehicles: number;
+  baselineKm: number;
+  baselineMin: number;
+  fleetLimited: boolean;
+}
+
+/** Default tariffs when the dispatcher left them empty (AZN per trip / per km) */
+const DEFAULT_COST_PER_ROUTE = 50;
+const DEFAULT_COST_PER_KM = 2;
+
+function computeBaseline(matrix: RoadMatrixLookup, ordersMap: Order[], limits: RoutingLimits, serviceMin: number) {
+  const n = Math.min(ordersMap.length, matrix.n - 1);
+  const fleetVolume = ordersMap.reduce((s, o) => s + o.volume, 0);
+  const maxFleetTruckV = limits.maxVolume > 0
+    ? limits.maxVolume
+    : (limits.truckTypes && limits.truckTypes.length > 0 ? Math.max(...limits.truckTypes.map(t => t.maxVolume)) : 12);
+  const minVehicles = Math.max(1, Math.ceil(fleetVolume / Math.max(0.1, maxFleetTruckV)));
+
+  // A rough lower bound of the plan: every truck goes out and back once, plus each stop's nearest neighbour hop
+  let depotKm = 0, depotMin = 0, nnKm = 0, nnMin = 0;
+  for (let i = 1; i <= n; i++) {
+    depotKm += (matrix.getDistance(0, i) + matrix.getDistance(i, 0)) / 2;
+    depotMin += (matrix.getDuration(0, i) + matrix.getDuration(i, 0)) / 2;
+    let bestKm = Infinity, bestMin = Infinity;
+    for (let j = 1; j <= n; j++) {
+      if (i === j) continue;
+      const d = matrix.getDistance(i, j);
+      if (d < bestKm) { bestKm = d; bestMin = matrix.getDuration(i, j); }
+    }
+    if (bestKm !== Infinity) { nnKm += bestKm; nnMin += bestMin; }
+  }
+  const meanDepotKm = n > 0 ? depotKm / n : 0;
+  const meanDepotMin = n > 0 ? depotMin / n : 0;
+  return {
+    fleetVolume,
+    minVehicles,
+    baselineKm: Math.max(1, 2 * meanDepotKm * minVehicles + nnKm),
+    baselineMin: Math.max(1, 2 * meanDepotMin * minVehicles + nnMin + n * serviceMin),
+    fleetLimited: hasFleetLimits(limits)
+  };
 }
 
 const MAX_CACHE_ENTRIES = 250_000;
@@ -204,7 +246,8 @@ function getEvalCache(matrix: RoadMatrixLookup, ordersMap: Order[], limits: Rout
   if (!bySchedule) { bySchedule = new Map(); byLimits.set(limits, bySchedule); }
   let cache = bySchedule.get(scheduleKey);
   if (!cache) {
-    cache = { sets: new Map(), routes: new Map(), fleetVolume: ordersMap.reduce((s, o) => s + o.volume, 0) };
+    const serviceMin = Number(scheduleKey.split('|')[0]) || 0;
+    cache = { sets: new Map(), routes: new Map(), ...computeBaseline(matrix, ordersMap, limits, serviceMin) };
     bySchedule.set(scheduleKey, cache);
   }
   return cache;
@@ -342,15 +385,17 @@ export function evaluateSingleRouteScore(
   const timeWindowScore = Math.min(1.0, schedule.totalLatenessMinutes / 45.0);
 
   // Road distance contribution normalized by route size
-  const distanceScore = Math.min(1.0, m.distKm / (orderIndices.length * 15 + 30));
+  // (no cap at 1.0: a capped score stops telling a 100 km route from a 200 km one)
+  const distanceScore = m.distKm / (orderIndices.length * 15 + 30);
 
   // Driving & waiting & service duration contribution normalized
-  const durationScore = Math.min(1.0, schedule.totalDurationMinutes / 480.0);
+  const durationScore = schedule.totalDurationMinutes / 480.0;
 
   // Soft constraint penalty (e.g. shift length > max allowed)
   let constraintPenalty = 0;
   if (schedule.totalDurationMinutes > config.maxRouteDurationHours * 60) {
-    constraintPenalty += Math.min(1.0, (schedule.totalDurationMinutes - config.maxRouteDurationHours * 60) / 120);
+    // shift limit is a real limit: every hour over it costs about as much as a whole extra truck
+    constraintPenalty += (schedule.totalDurationMinutes - config.maxRouteDurationHours * 60) / 60;
   }
 
   // Route stability penalty (penalize deviating from yesterday's plan if provided)
@@ -429,13 +474,14 @@ export function evaluateSolutionScore(
 
   const utilizations: number[] = [];
   const stopCounts: number[] = [];
-  let fleetVolume = 0;
+  const cache = getEvalCache(matrix, ordersMap, limits,
+    `${limits.serviceTimeMinutes ?? config.defaultServiceTimeMinutes ?? 10}|${(config.depotStartHour ?? 8) * 60}`);
+  const routeOrderLists: Order[][] = [];
 
   for (const r of activeRoutes) {
     const m = getRouteMetrics(r, ordersMap, matrix, limits, config);
     if (!m.set.feasible) return Infinity;
-    fleetVolume = getEvalCache(matrix, ordersMap, limits,
-      `${limits.serviceTimeMinutes ?? config.defaultServiceTimeMinutes ?? 10}|${(config.depotStartHour ?? 8) * 60}`).fleetVolume;
+    routeOrderLists.push(m.orders);
 
     totalDistKm += m.distKm;
     const schedule = m.schedule;
@@ -486,26 +532,25 @@ export function evaluateSolutionScore(
 
   const k = activeRoutes.length;
 
-  // 1. Distance Score: normalized against total direct radial distance baseline
-  const avgDistPerVehicle = totalDistKm / k;
-  const distanceScore = Math.min(1.0, avgDistPerVehicle / 90.0);
+  // 1-3. Plan cost with the dispatcher's tariffs: per trip (truck) + per km.
+  //      Totals, not averages per truck (an average makes splitting into more trucks look cheaper),
+  //      and no cap at 1.0 (a capped score cannot tell a long plan from a very long one).
+  //      The mode still sets the balance between saving trucks and saving kilometres.
+  const costPerRoute = limits.costPerRoute > 0 ? limits.costPerRoute : DEFAULT_COST_PER_ROUTE;
+  const costPerKm = limits.costPerKm > 0 ? limits.costPerKm : DEFAULT_COST_PER_KM;
+  const mix = Math.max(0.0001, config.vehicleCountWeight + config.distanceWeight);
+  const truckFactor = (2 * config.vehicleCountWeight) / mix;
+  const kmFactor = (2 * config.distanceWeight) / mix;
+  const planCost = costPerRoute * k * truckFactor + costPerKm * totalDistKm * kmFactor;
+  const baselineCost = costPerRoute * cache.minVehicles * truckFactor + costPerKm * cache.baselineKm * kmFactor;
+  const costScore = planCost / Math.max(1, baselineCost);
+  const durationScore = totalDurationMin / cache.baselineMin;
 
-  // 2. Duration Score: normalized against standard working shift (8 hours = 480 min)
-  const avgDurationPerVehicle = totalDurationMin / k;
-  const durationScore = Math.min(1.0, avgDurationPerVehicle / 480.0);
-
-  // 3. Vehicle Count Score: theoretical minimum trucks based on total volume
-  const totalFleetVolume = fleetVolume;
-  const maxFleetTruckV = limits.maxVolume > 0
-    ? limits.maxVolume
-    : (limits.truckTypes && limits.truckTypes.length > 0
-        ? Math.max(...limits.truckTypes.map(t => t.maxVolume))
-        : 12);
-  const minPossibleVehicles = Math.max(
-    1,
-    Math.ceil(totalFleetVolume / Math.max(0.1, maxFleetTruckV))
-  );
-  const vehicleCountScore = Math.max(0, (k - minPossibleVehicles) / Math.max(1, k));
+  // Trucks actually available: one route per truck, types without a count are unlimited
+  let fleetPenalty = 0;
+  if (cache.fleetLimited) {
+    fleetPenalty = assignFleet(routeOrderLists, limits).unassigned * 25.0;
+  }
 
   // 4. Capacity & Utilization Score (Volume is primary driver)
   const avgUtil = utilizations.reduce((s, u) => s + u, 0) / k;
@@ -530,7 +575,9 @@ export function evaluateSolutionScore(
   const timeWindowScore = Math.min(1.0, totalLatenessMin / (k * 45.0));
 
   // 9. Constraint Penalty (soft overtime or minor violations)
-  const constraintPenalty = Math.min(0.2, (totalShiftOvertimeMin / (k * 60)) * 0.1);
+  // Shift limit (default 10 h): every hour over it costs about as much as a whole extra truck,
+  // so the optimizer adds a truck instead of planning a 20-hour route
+  const constraintPenalty = (totalShiftOvertimeMin / 60) * 0.5;
 
   // 10. Cost Model Score (if enabled)
   let costModelScore = 0;
@@ -545,9 +592,8 @@ export function evaluateSolutionScore(
 
   // Combine into normalized total objective score
   let totalScore =
-    config.distanceWeight * distanceScore +
+    (config.distanceWeight + config.vehicleCountWeight) * costScore +
     config.durationWeight * durationScore +
-    config.vehicleCountWeight * vehicleCountScore +
     config.capacityUtilizationWeight * capacityScore +
     config.geographicCompactnessWeight * geographicScore +
     config.stopBalanceWeight * stopBalanceScore +
@@ -555,6 +601,7 @@ export function evaluateSolutionScore(
     config.timeWindowWeight * timeWindowScore +
     constraintPenalty +
     excessVehiclePenalty +
+    fleetPenalty +
     totalHardTwPenalty +
     splitGroupPenalty;
 

@@ -24,7 +24,9 @@ import {
 } from 'lucide-react';
 import { Route, Order, TruckType } from '../../types';
 import { RoutingLimits } from '../../services/routingService';
-import { RouteCard } from './RouteCard';
+import { RouteSummaryList } from './RouteSummaryList';
+import { RouteListFilter, RouteListSort } from './RouteViewParts';
+import { RouteInsight } from '../../services/routeInsights';
 import { cn } from '../../lib/utils';
 import { useTranslation } from '../../i18n/I18nContext';
 
@@ -91,6 +93,14 @@ export interface RoutesManagementPanelProps {
   onToggleLockRoute?: (routeId: string) => void;
   onOpenWhatIf?: () => void;
   onOpenConstraints?: () => void;
+  // New route list
+  routeListItems: RouteInsight[];
+  routeListTotal: number;
+  routeListFilter: RouteListFilter;
+  routeListSort: RouteListSort;
+  onSetRouteListFilter: (f: RouteListFilter) => void;
+  onSetRouteListSort: (s: RouteListSort) => void;
+  onOpenSummaryTable: () => void;
 }
 
 export const RoutesManagementPanel: React.FC<RoutesManagementPanelProps> = ({
@@ -138,6 +148,13 @@ export const RoutesManagementPanel: React.FC<RoutesManagementPanelProps> = ({
   onToggleLockRoute,
   onOpenWhatIf,
   onOpenConstraints,
+  routeListItems,
+  routeListTotal,
+  routeListFilter,
+  routeListSort,
+  onSetRouteListFilter,
+  onSetRouteListSort,
+  onOpenSummaryTable,
 }) => {
   const { t } = useTranslation();
 
@@ -398,184 +415,20 @@ export const RoutesManagementPanel: React.FC<RoutesManagementPanelProps> = ({
             </div>
           )}
 
-          {/* Header info & Expand/Collapse All */}
-          <div className="flex items-center justify-between text-[11px] text-muted-foreground font-medium px-0.5">
-            <span>
-              {selectedRouteDateFilter === 'all' 
-                ? `${t('groupByShippingDates')} (${dateGroupedRoutes.length})`
-                : `${t('selectedDateLabel')}: ${selectedRouteDateFilter}`}
-            </span>
-            <div className="flex gap-2">
-              <button 
-                type="button"
-                className="text-primary hover:underline text-[10px] font-semibold cursor-pointer"
-                onClick={() => {
-                  const allExpanded: Record<string, boolean> = {};
-                  (dateGroupedRoutes || []).forEach(g => { allExpanded[g.date] = false; });
-                  onSetCollapsedDateGroups(allExpanded);
-                }}
-              >
-                {t('expandAll')}
-              </button>
-              <span>•</span>
-              <button 
-                type="button"
-                className="text-muted-foreground hover:underline text-[10px] cursor-pointer"
-                onClick={() => {
-                  const allCollapsed: Record<string, boolean> = {};
-                  (dateGroupedRoutes || []).forEach(g => { allCollapsed[g.date] = true; });
-                  onSetCollapsedDateGroups(allCollapsed);
-                }}
-              >
-                {t('collapseAll')}
-              </button>
-            </div>
-          </div>
-
-          {/* Date Groups */}
-          {dateGroupedRoutes.length === 0 ? (
-            <div className="p-8 text-center text-muted-foreground text-xs bg-muted/20 border border-dashed rounded-xl">
-              {t('noOrdersOrRoutes')}
-            </div>
-          ) : (
-            (selectedRouteDateFilter === 'all' 
-              ? dateGroupedRoutes 
-              : dateGroupedRoutes.filter(g => g.date === selectedRouteDateFilter)
-            ).map((group, groupIdx) => {
-              const isCollapsed = collapsedDateGroups[group.date] !== false;
-              const allRoutesVisible = group.routes.length > 0 && group.routes.every((r: Route) => r.isVisible);
-              const isGroupActiveInFilter = selectedShippingDates.includes(group.date) || 
-                selectedRouteDateFilter === group.date || 
-                (quickDateFilter === 'today' && todayMatchingDates.includes(group.date)) || 
-                (quickDateFilter === 'tomorrow' && tomorrowMatchingDates.includes(group.date)) || 
-                (quickDateFilter === 'next7' && next7MatchingDates.includes(group.date));
-              const isToday = todayMatchingDates.includes(group.date);
-              const isTomorrow = tomorrowMatchingDates.includes(group.date);
-              
-              return (
-                <div 
-                  key={`route-group-panel-${group.date || 'date'}-${groupIdx}`} 
-                  className={cn(
-                    "border rounded-xl overflow-hidden shadow-xs space-y-0 transition-all",
-                    isGroupActiveInFilter 
-                      ? "border-primary ring-2 ring-primary/40 bg-card shadow-sm" 
-                      : "border-border bg-card"
-                  )}
-                >
-                  {/* Group Header */}
-                  <div 
-                    className={cn(
-                      "px-2.5 py-1.5 transition-colors cursor-pointer flex items-center justify-between gap-1.5 border-b select-none",
-                      isGroupActiveInFilter 
-                        ? "bg-primary/10 border-primary/20" 
-                        : "bg-muted/30 hover:bg-muted/50 border-border",
-                      isCollapsed && !isGroupActiveInFilter && "border-transparent"
-                    )}
-                    onClick={() => onToggleDateGroupCollapse(group.date)}
-                  >
-                    <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                      <span className="text-muted-foreground shrink-0">
-                        {isCollapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
-                      </span>
-                      <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
-                        <span className="font-bold text-[11px] text-foreground shrink-0">{group.date}</span>
-                        {isGroupActiveInFilter && (
-                          <span className="px-1 py-0.2 rounded text-[8px] font-extrabold bg-primary text-primary-foreground">
-                            {isToday ? t('dateToday') : isTomorrow ? t('dateTomorrow') : t('activeLabel')}
-                          </span>
-                        )}
-                        <span className="px-1.5 py-0.2 rounded text-[8.5px] font-bold bg-primary/10 text-primary border border-primary/20 shrink-0">
-                          {group.routes.length} {t('unitRoutesShort')}
-                        </span>
-                        <span className="px-1.5 py-0.2 rounded text-[8.5px] font-semibold bg-muted text-muted-foreground shrink-0">
-                          {group.orders.length} {t('unitOrdersShort')}
-                        </span>
-                        <span className="text-[9px] text-muted-foreground truncate hidden sm:inline">
-                          • {roundUp(group.totalWeight)} {t('unitKg')} • {roundUp(group.totalVolume)} {t('unitM3')} • {formatDec1(group.totalDistance)} {t('unitKm')}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-0.5 shrink-0" onClick={e => e.stopPropagation()}>
-                      <button
-                        type="button"
-                        className={cn(
-                          "h-5 w-5 rounded flex items-center justify-center cursor-pointer transition-colors", 
-                          isGroupActiveInFilter ? "text-primary bg-primary/20" : "text-muted-foreground hover:text-foreground"
-                        )}
-                        title={isGroupActiveInFilter ? t('resetDateFilter') : t('filterByThisDate')}
-                        onClick={() => onSelectRouteDateFilter(isGroupActiveInFilter ? 'all' : group.date)}
-                      >
-                        <Filter size={11} />
-                      </button>
-                      <button
-                        type="button"
-                        className="h-5 w-5 rounded flex items-center justify-center text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
-                        title={t('selectAllOrdersOnDate')}
-                        onClick={() => onSelectOrderIds(group.orders.map((o: Order) => o.id))}
-                      >
-                        <MousePointer2 size={11} />
-                      </button>
-                      {group.routes.length > 0 && (
-                        <>
-                          <button
-                            type="button"
-                            className="h-5 w-5 rounded flex items-center justify-center text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
-                            title={t('exportDatePdf')}
-                            onClick={() => onExportDateRoutesToPdf(group)}
-                          >
-                            <Download size={11} />
-                          </button>
-                          <button
-                            type="button"
-                            className={cn(
-                              "h-5 w-5 rounded flex items-center justify-center cursor-pointer transition-colors", 
-                              !allRoutesVisible ? "text-rose-500" : "text-muted-foreground hover:text-foreground"
-                            )}
-                            title={allRoutesVisible ? t('hideDateRoutes') : t('showDateRoutes')}
-                            onClick={() => onToggleDateRoutesVisibility(group.routes)}
-                          >
-                            {allRoutesVisible ? <Eye size={11} /> : <EyeOff size={11} />}
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Group Body */}
-                  {!isCollapsed && (
-                    <div className="p-2 space-y-2 bg-card">
-                      {group.routes.length === 0 ? (
-                        <div className="py-4 text-center text-xs text-muted-foreground bg-muted/20 rounded-lg border border-dashed">
-                          {t('noRoutesForDate')}
-                        </div>
-                      ) : (
-                        <div className="space-y-2">
-                          {group.routes.map((route: Route, rIdx: number) => (
-                            <RouteCard 
-                              key={`route-card-${route.id || 'route'}-${rIdx}`} 
-                              route={route} 
-                              orders={route.orderIds.map(id => orders.find(o => o.id === id)).filter((o): o is Order => Boolean(o))}
-                              limits={routingLimits}
-                              isHovered={hoveredRouteId === route.id}
-                              isSelected={selectedRouteId === route.id}
-                              onHover={onSetHoveredRouteId}
-                              onClick={() => onSetSelectedRouteId(selectedRouteId === route.id ? null : route.id)}
-                              onDelete={() => onDeleteRoute(route.id)}
-                              onToggleVisibility={() => onToggleRouteVisibility(route.id)}
-                              onShowDetails={() => onShowRouteDetails(route)}
-                              onOptimize={() => onOptimizeRoute(route)}
-                              onToggleLock={() => onToggleLockRoute?.(route.id)}
-                            />
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })
-          )}
+          {/* Route list: uniform rows with status and load (details of one route open over the map) */}
+          <RouteSummaryList
+            items={routeListItems}
+            totalCount={routeListTotal}
+            selectedRouteId={selectedRouteId}
+            lockedRouteIds={routingLimits.lockedRoutes || []}
+            filter={routeListFilter}
+            sort={routeListSort}
+            onSetFilter={onSetRouteListFilter}
+            onSetSort={onSetRouteListSort}
+            onSelect={onSetSelectedRouteId}
+            onHover={onSetHoveredRouteId}
+            onOpenTable={onOpenSummaryTable}
+          />
         </div>
     </div>
   );

@@ -317,11 +317,14 @@ function MapEventsHandler({
 
     try {
       const bounds = L.latLngBounds(points);
-      map.fitBounds(bounds, { padding: [50, 50], maxZoom: 15, animate: true });
+      // the route panel covers roughly the lower half of the map: keep the route above it
+      const bottomPad = Math.round(map.getSize().y * 0.5) + 24;
+      map.fitBounds(bounds, { paddingTopLeft: [50, 50], paddingBottomRight: [50, bottomPad], maxZoom: 15, animate: true });
     } catch (e) {
       console.error('Error auto-centering map on route:', e);
     }
-  }, [selectedRouteId, routes, orders, map]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRouteId, map]);
 
   useMapEvents({
     click: () => {
@@ -847,7 +850,7 @@ export function MapView({
           const anySelected = Boolean(selectedRouteId);
           const opacity = anyHovered 
             ? (isHighlighted ? 1 : 0.2) 
-            : (anySelected ? (isHighlighted ? 1 : 0.3) : 0.85);
+            : (anySelected ? (isHighlighted ? 1 : 0.18) : 0.85);
           
           const positions: [number, number][] = route.geometry && route.geometry.length > 0 
             ? route.geometry 

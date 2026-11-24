@@ -613,6 +613,24 @@ export const RouterModal: React.FC<RouterModalProps> = ({
                           />
                         </div>
                       </div>
+                      <div className="space-y-1 pt-1 border-t">
+                        <label htmlFor={`truck-count-${truck.id}`} className="text-[10px] text-muted-foreground font-medium">{t('truckCountLabel')}</label>
+                        <Input
+                          id={`truck-count-${truck.id}`}
+                          type="number"
+                          min={0}
+                          placeholder={t('truckCountPlaceholder')}
+                          value={truck.count ?? ''}
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            const count = raw === '' ? undefined : Math.max(0, Math.floor(Number(raw)));
+                            const newTypes = routingLimits.truckTypes.map(t => t.id === truck.id ? { ...t, count: count || undefined } : t);
+                            setRoutingLimits({ ...routingLimits, truckTypes: newTypes });
+                          }}
+                          className="h-7 text-xs font-medium"
+                        />
+                        <span className="text-[9.5px] text-muted-foreground leading-tight block">{t('truckCountHint')}</span>
+                      </div>
                     </div>
                   ))}
                 </div>

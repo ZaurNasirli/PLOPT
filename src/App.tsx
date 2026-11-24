@@ -22,6 +22,11 @@ import { setRoadBarriers, getBarrierHash, getActiveBarriers, anyBarrierTouchesPa
 import { valhallaLocate } from './services/barriers/valhallaClient';
 import { buildStoreLookup, upsertStores } from './services/storeDirectory';
 import { roadCache } from './services/cloud/roadCache';
+import { buildRouteInsights } from './services/routeInsights';
+import { assignFleetToRoutes } from './services/optimizer/FleetAssignment';
+import { orderInsights, RouteListFilter, RouteListSort } from './components/routes/RouteViewParts';
+import { RouteFocusPanel } from './components/routes/RouteFocusPanel';
+import { RouteSummaryTable } from './components/routes/RouteSummaryTable';
 import { AlgorithmSelector } from './components/AlgorithmSelector';
 import { BulkActionsMenu } from './components/BulkActionsMenu';
 import { RouterModal } from './components/RouterModal';
@@ -41,7 +46,6 @@ import { OptimizationDiffModal } from './components/OptimizationDiffModal';
 import { routeHistoryService, RouteHistoryEntry } from './services/routeHistoryService';
 
 // Modular Components
-import { RouteCard } from './components/routes/RouteCard';
 import { RoutesManagementPanel } from './components/routes/RoutesManagementPanel';
 import { RouteDetailsModal } from './components/routes/RouteDetailsModal';
 import { OptimizationModal } from './components/routes/OptimizationModal';
@@ -1163,8 +1167,10 @@ export default function App() {
       const updatedRoutes = [...routes];
       const orderMap = new Map(orders.map(o => [o.id, o]));
       
+      const lockedRouteIds = new Set(routingLimits.lockedRoutes || []);
       for (let i = 0; i < updatedRoutes.length; i++) {
         const route = updatedRoutes[i];
+        if (lockedRouteIds.has(route.id)) continue; // locked: keep the stop order
         const routeOrders = route.orderIds.map(id => orderMap.get(id)).filter((o): o is Order => Boolean(o));
         if (routeOrders.length < 2) continue;
 
@@ -1477,8 +1483,16 @@ export default function App() {
       }
     }
 
+    // Locked routes stay exactly as they are: their orders never go back into routing
+    const lockedRouteIds = new Set(routingLimits.lockedRoutes || []);
+    const lockedOrderIds = new Set(routes.filter(r => lockedRouteIds.has(r.id)).flatMap(r => r.orderIds));
+    const lockedSkipped = availableOrders.filter(o => lockedOrderIds.has(o.id)).length;
+    availableOrders = availableOrders.filter(o => !lockedOrderIds.has(o.id));
+
     if (availableOrders.length === 0) {
-      setSaveNotification('Нет доступных заказов для маршрутизации (проверьте фильтры магазинов и дат)');
+      setSaveNotification(lockedSkipped > 0
+        ? 'Все выбранные заказы находятся в заблокированных маршрутах — пересчитывать нечего'
+        : 'Нет доступных заказов для маршрутизации (проверьте фильтры магазинов и дат)');
       return;
     }
 
@@ -1582,7 +1596,12 @@ export default function App() {
           orderIds: r.orderIds.filter(id => !newOrderIds.has(id))
         }))
         .filter(r => r.orderIds.length > 0);
-      const finalRoutes = [...updatedPrev, ...resultRoutes];
+      // Trucks actually available (counts per type, one route per truck per day); existing routes keep theirs
+      const fleet = assignFleetToRoutes([...updatedPrev, ...resultRoutes], prevOrders, routingLimits, new Set(updatedPrev.map(r => r.id)));
+      const finalRoutes = fleet.routes;
+      const shortageText = Object.entries(fleet.shortage)
+        .map(([id, c]) => `${routingLimits.truckTypes?.find(t => t.id === id)?.name || id} ×${c}`)
+        .join(', ');
       const finalOrders = prevOrders.map(o => {
         const foundRoute = resultRoutes.find(r => r.orderIds.includes(o.id));
         return foundRoute ? { ...o, status: 'in-route' as const, routeId: foundRoute.id } : o;
@@ -1604,7 +1623,9 @@ export default function App() {
       setOptimizationDiffEntry(historyEntry);
 
       onProgress({ percent: 100, message: `Маршрутизация завершена! Сформировано ${resultRoutes.length} маршрут(ов).` });
-      setSaveNotification(`Успешно создано ${resultRoutes.length} маршрут(ов)`);
+      setSaveNotification(shortageText
+        ? `Создано ${resultRoutes.length} маршрут(ов). Не хватает машин: ${shortageText} — такие маршруты отмечены «Нет машины»`
+        : `Успешно создано ${resultRoutes.length} маршрут(ов)`);
       setTimeout(() => setIsRouting(false), 800);
 
       // Background geometry & road navigation calculation
@@ -2842,6 +2863,25 @@ export default function App() {
     });
   };
 
+  const handleDeleteRoute = (routeId: string) => {
+    const targetRoute = routes.find(r => r.id === routeId);
+    const nextRoutes = routes.filter(r => r.id !== routeId);
+    const nextOrders = orders.map(o => o.routeId === routeId ? { ...o, status: 'not-in-route' as const, routeId: undefined } : o);
+    setRoutes(nextRoutes);
+    setOrders(nextOrders);
+    if (selectedRouteId === routeId) setSelectedRouteId(null);
+    routeHistoryService.recordChange({
+      action: 'Удаление маршрута',
+      actionType: 'route_deleted',
+      description: `Удален маршрут "${targetRoute?.name || routeId}"`,
+      routesBefore: routes,
+      routesAfter: nextRoutes,
+      ordersBefore: orders,
+      ordersAfter: nextOrders,
+      source: 'manual'
+    });
+  };
+
   const handleClearAllRoutes = () => {
     if (routes.length === 0) return;
     const prevRoutes = [...routes];
@@ -2917,6 +2957,49 @@ export default function App() {
       };
     }).filter(group => group.orders.length > 0 || group.routes.length > 0);
   }, [orders, routes]);
+
+  // --- Route viewer: summary list, one route in focus over the map, summary table ---
+  const [routeListFilter, setRouteListFilter] = useState<RouteListFilter>('all');
+  const [routeListSort, setRouteListSort] = useState<RouteListSort>('num');
+  const [showRouteSummaryTable, setShowRouteSummaryTable] = useState(false);
+  const routeInsights = useMemo(() => buildRouteInsights(routes, orders, routingLimits), [routes, orders, routingLimits]);
+  const routeListBase = useMemo(() => {
+    if (selectedRouteDateFilter === 'all') return routeInsights;
+    const group = dateGroupedRoutes.find(g => g.date === selectedRouteDateFilter);
+    if (!group) return routeInsights;
+    const ids = new Set(group.routes.map(r => r.id));
+    return routeInsights.filter(i => ids.has(i.route.id));
+  }, [routeInsights, selectedRouteDateFilter, dateGroupedRoutes]);
+  const routeListItems = useMemo(() => orderInsights(routeListBase, routeListFilter, routeListSort), [routeListBase, routeListFilter, routeListSort]);
+  const focusedInsight = selectedRouteId ? routeInsights.find(i => i.route.id === selectedRouteId) || null : null;
+  const focusedPosition = focusedInsight ? routeListItems.findIndex(i => i.route.id === focusedInsight.route.id) + 1 : 0;
+
+  const stepFocusedRoute = (delta: number) => {
+    if (routeListItems.length === 0) return;
+    const pos = routeListItems.findIndex(i => i.route.id === selectedRouteId);
+    const next = pos < 0 ? 0 : (pos + delta + routeListItems.length) % routeListItems.length;
+    const id = routeListItems[next].route.id;
+    setHoveredRouteId(null);
+    setSelectedRouteId(id);
+    document.getElementById(`rv-row-${id}`)?.scrollIntoView({ block: 'nearest' });
+  };
+
+  // ←/→ switch the route in focus (not while typing or inside a dialog)
+  const stepRef = useRef(stepFocusedRoute);
+  stepRef.current = stepFocusedRoute;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      const el = e.target as HTMLElement | null;
+      if (el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable || el.closest('[role="dialog"]'))) return;
+      if (leftPanelTab !== 'routes' && !selectedRouteId) return;
+      e.preventDefault();
+      stepRef.current(e.key === 'ArrowRight' ? 1 : -1);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [leftPanelTab, selectedRouteId]);
+
 
   const toggleOrderSelection = (id: string) => {
     setSelectedOrderIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
@@ -3837,24 +3920,14 @@ export default function App() {
                   onSelectOrderIds={setSelectedOrderIds}
                   onSetHoveredRouteId={setHoveredRouteId}
                   onSetSelectedRouteId={(id) => setSelectedRouteId(selectedRouteId === id ? null : id)}
-                  onDeleteRoute={(routeId) => {
-                    const targetRoute = routes.find(r => r.id === routeId);
-                    const nextRoutes = routes.filter(r => r.id !== routeId);
-                    const nextOrders = orders.map(o => o.routeId === routeId ? { ...o, status: 'not-in-route' as const, routeId: undefined } : o);
-                    setRoutes(nextRoutes);
-                    setOrders(nextOrders);
-                    if (selectedRouteId === routeId) setSelectedRouteId(null);
-                    routeHistoryService.recordChange({
-                      action: 'Удаление маршрута',
-                      actionType: 'route_deleted',
-                      description: `Удален маршрут "${targetRoute?.name || routeId}"`,
-                      routesBefore: routes,
-                      routesAfter: nextRoutes,
-                      ordersBefore: orders,
-                      ordersAfter: nextOrders,
-                      source: 'manual'
-                    });
-                  }}
+                  onDeleteRoute={handleDeleteRoute}
+                  routeListItems={routeListItems}
+                  routeListTotal={routeListBase.length}
+                  routeListFilter={routeListFilter}
+                  routeListSort={routeListSort}
+                  onSetRouteListFilter={setRouteListFilter}
+                  onSetRouteListSort={setRouteListSort}
+                  onOpenSummaryTable={() => setShowRouteSummaryTable(true)}
                   onToggleRouteVisibility={(routeId) => {
                     setRoutes(prev => prev.map(r => r.id === routeId ? { ...r, isVisible: !r.isVisible } : r));
                   }}
@@ -4014,13 +4087,42 @@ export default function App() {
           </Button>
         </aside>
 
-        {/* Central Map */}
+        {/* Central Map (isolated stacking: map layers and the route panel always stay below dialogs) */}
         <main 
-          className="flex-1 relative"
+          className="flex-1 relative isolate"
           onMouseEnter={() => {
             if (hoveredRouteId) setHoveredRouteId(null);
           }}
         >
+          {focusedInsight && (
+            <RouteFocusPanel
+              insight={focusedInsight}
+              position={focusedPosition}
+              total={routeListItems.length}
+              isLocked={(routingLimits.lockedRoutes || []).includes(focusedInsight.route.id)}
+              onPrev={() => stepFocusedRoute(-1)}
+              onNext={() => stepFocusedRoute(1)}
+              onClose={() => setSelectedRouteId(null)}
+              onShowDetails={() => setSelectedRouteDetails(focusedInsight.route)}
+              onOptimize={() => setSelectedRouteForOptimization(focusedInsight.route)}
+              onToggleVisibility={() => setRoutes(prev => prev.map(r => r.id === focusedInsight.route.id ? { ...r, isVisible: !r.isVisible } : r))}
+              onToggleLock={() => handleToggleLockRoute(focusedInsight.route.id)}
+              onDelete={() => handleDeleteRoute(focusedInsight.route.id)}
+            />
+          )}
+          {showRouteSummaryTable && (
+            <RouteSummaryTable
+              items={routeListItems}
+              totalCount={routeListBase.length}
+              selectedRouteId={selectedRouteId}
+              filter={routeListFilter}
+              sort={routeListSort}
+              onSetFilter={setRouteListFilter}
+              onSetSort={setRouteListSort}
+              onSelect={(id) => { setSelectedRouteId(id); setShowRouteSummaryTable(false); setLeftPanelTab('routes'); }}
+              onClose={() => setShowRouteSummaryTable(false)}
+            />
+          )}
           <MapView 
             orders={filteredOrders} 
             routes={routes} 

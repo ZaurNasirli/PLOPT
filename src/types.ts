@@ -4,6 +4,8 @@ export interface TruckType {
   maxWeight: number;
   maxVolume: number;
   rank: number; // Higher rank means bigger truck
+  /** How many trucks of this type exist (one route per truck per day). Empty = unlimited. */
+  count?: number;
 }
 
 export interface Order {
@@ -106,6 +108,8 @@ export interface Route {
   driverName?: string;
   /** 'detour': road line rebuilt around active barriers; 'blocked': the line still crosses a barrier (no detour found) */
   barrierStatus?: 'detour' | 'blocked';
+  /** no truck of a fitting type is left for this route (fleet counts are set) */
+  noTruck?: boolean;
 }
 
 export interface StreetGroup {

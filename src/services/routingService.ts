@@ -29,6 +29,8 @@ export interface RoutingLimits {
     maxWeight: number;
     maxVolume: number;
     rank: number;
+    /** trucks of this type available per day (one route each); empty = unlimited */
+    count?: number;
   }[];
   costPerRoute: number;
   costPerKm: number;
