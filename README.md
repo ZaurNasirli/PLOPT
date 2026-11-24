@@ -101,6 +101,22 @@ Everything lives in `src/rota/`:
 There are **no default rules**: every party, penalty and algorithm phase comes from the user
 (by hand on the Rules tab or from the rules Excel file).
 
+Tabs:
+
+- **Analytics** — day balance, before/after chart, heat maps day × party / day × region, "N or 0" matrix,
+  truck load; Excel export in the layout of the reference file (formulas recalculate in Excel) and PDF.
+- **Kanban** — one card per store-day, party lanes, drag to move a day (Alt/Shift or "Add day" adds it),
+  bulk actions, conflicts panel, store card with locks and exceptions. Hard rules refuse a change with the
+  reason; soft rules only warn. Every change is one undo step (Ctrl+Z / Ctrl+Y).
+- **Map** — clusters, colour by days / party / segment, lasso selection, seven day mini maps with the store list.
+- **Rules** — rule sets, seven tables, Excel import (ru/az/en/tr) with a preview, export, empty template, check.
+- **Scenarios** — original / current / saved plans (an applied optimization is saved automatically),
+  comparison, roll back, JSON export/import of all Rota data.
+- **Report** — store changes with reasons (copy / Excel), chain moves, remaining "N or 0" violations with reasons.
+
+The optimizer runs in Web Workers ("Exact" or "Fast" mode, scope, balance ↔ fewer changes, N-or-0 strictness,
+seed); "Stop" returns the best plan found so far.
+
 Two looks are available (Rota → «Стиль»): PL/OPT and LogistikPro. They differ only in CSS variables
 (`src/rota/rota-theme.css`), so either can be made the default without touching components.
 

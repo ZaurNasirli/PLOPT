@@ -37,12 +37,15 @@ export interface RotaI18n {
 export function makeRotaI18n(lang: string): RotaI18n {
   const l = (DICTS[lang as RotaLang] ? lang : 'ru') as RotaLang;
   const t = DICTS[l];
-  const nf1 = new Intl.NumberFormat(t.locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
-  const nf0 = new Intl.NumberFormat(t.locale, { maximumFractionDigits: 0 });
+  // Azerbaijani writes numbers like Turkish (1.583,7); browsers often lack the az number data and fall
+  // back to English (1,583.7), so the Turkish number format is used for az
+  const numLocale = l === 'az' ? 'tr-TR' : t.locale;
+  const nf1 = new Intl.NumberFormat(numLocale, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  const nf0 = new Intl.NumberFormat(numLocale, { maximumFractionDigits: 0 });
   const cache = new Map<number, Intl.NumberFormat>();
   const nfd = (d: number) => {
     let f = cache.get(d);
-    if (!f) cache.set(d, (f = new Intl.NumberFormat(t.locale, { minimumFractionDigits: d, maximumFractionDigits: d })));
+    if (!f) cache.set(d, (f = new Intl.NumberFormat(numLocale, { minimumFractionDigits: d, maximumFractionDigits: d })));
     return f;
   };
   const safe = (v: number) => (Number.isFinite(v) ? v : 0);
