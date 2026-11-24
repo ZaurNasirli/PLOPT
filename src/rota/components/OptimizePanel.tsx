@@ -14,6 +14,7 @@ import { phaseIterations } from '../engine/pipeline';
 import type { EngineScope } from '../engine/model';
 import { Btn, Modal, MultiSelect } from './ui';
 import { setLastRun } from '../state/lastRun';
+import { engineSplit } from '../state/split';
 import { newId } from '../rules/types';
 
 type ScopeKind = 'all' | 'regions' | 'parties' | 'filtered';
@@ -98,7 +99,7 @@ const RunDialog: React.FC<{ onClose: () => void; filteredCodes: string[] | null;
     setError(null);
     setProgress(null);
     const h = startOptimization(
-      { stores: ws.dataset.stores, original: ws.original, current: ws.current, rules, scope },
+      { stores: ws.dataset.stores, original: ws.original, current: ws.current, rules, scope, split: engineSplit(ws) },
       { mode, chgFactor, grpFactor: STRICTNESS[strict], seed, debug },
       p => setProgress(p)
     );

@@ -1,0 +1,9 @@
+/* Proqnoz chart colours: categorical slots 1 and 2 of the validated palette, stepped for each surface */
+.fc-root {
+  --fc-s1: #2a78d6;
+  --fc-s2: #eb6834;
+}
+.dark .fc-root {
+  --fc-s1: #3987e5;
+  --fc-s2: #d95926;
+}

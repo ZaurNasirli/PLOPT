@@ -11,6 +11,7 @@ import { useRotaI18n } from '../../i18n';
 import { ALL_WEEKDAYS, StoreView, Weekday } from '../../types';
 import type { PlanChecker, StoreIssue } from '../../state/checks';
 import { nameKey } from '../../core/names';
+import { onDay } from '../../state/views';
 import { partyColor, ToggleChip } from '../ui';
 import { checkText } from '../checkText';
 
@@ -95,7 +96,7 @@ export const KanbanTab: React.FC<{
   }, [selected, onSelect]);
 
   const columnHead = (d: Weekday, list: StoreView[]) => {
-    const vol = list.reduce((s, v) => s + v.dailyVolume, 0);
+    const vol = list.reduce((s, v) => s + onDay(v, d), 0);
     const working = workingDays.includes(d);
     return (
       <div className={cn('px-2.5 py-2 rounded-t-xl border-b', working ? 'bg-night-900 text-white border-night-900' : 'bg-ink-200 text-ink-600 border-ink-200')}>
@@ -194,7 +195,7 @@ const Cell: React.FC<{
       {(prov, snap) => (
         <div ref={prov.innerRef} {...prov.droppableProps} className={cn('p-1.5 space-y-1.5', snap.isDraggingOver && 'ring-2 ring-brand-400 ring-inset', className)}>
           {showCount && list.length > 0 && (
-            <div className="text-[10.5px] text-ink-500 tabular-nums px-0.5">{list.length} · {m3(list.reduce((s, v) => s + v.dailyVolume, 0))} {t.units.m3}</div>
+            <div className="text-[10.5px] text-ink-500 tabular-nums px-0.5">{list.length} · {m3(list.reduce((s, v) => s + onDay(v, day), 0))} {t.units.m3}</div>
           )}
           {visible.map((v, idx) => {
             const key = cardKey(v.storeCode, day);
@@ -271,10 +272,10 @@ const Card = memo(function Card({ v, day, parties, issues, locked, selected, foc
       <div className="flex items-center gap-1 mt-0.5">
         <span className="px-1 rounded text-[10.5px] font-semibold text-white truncate max-w-[60%]" style={{ backgroundColor: color }} title={v.currentParty}>{v.currentParty}</span>
         {v.partyChanged && <span className="text-[10px] text-brand-700 font-bold">↑</span>}
-        <span className="ml-auto tabular-nums text-ink-700">{m3(v.dailyVolume)} {t.units.m3}</span>
+        <span className="ml-auto tabular-nums text-ink-700">{m3(onDay(v, day))} {t.units.m3}</span>
       </div>
       <div className="flex items-center gap-1 mt-0.5 text-ink-500 tabular-nums min-w-0">
-        <span className="whitespace-nowrap">{int(v.dailyQty)} {t.units.pcs} · {int(v.dailyWeight)} {t.units.kg}</span>
+        <span className="whitespace-nowrap">{int(onDay(v, day, 'qty'))} {t.units.pcs} · {int(onDay(v, day, 'weight'))} {t.units.kg}</span>
         <span className="ml-auto truncate min-w-0" title={`${t.kanban.window}: ${v.receivingTime || '—'}`}>{v.receivingTime || '—'}</span>
       </div>
       <div className="flex gap-0.5 mt-1" aria-label={v.currentDays.map(dayShort).join(' ')}>

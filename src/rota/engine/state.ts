@@ -47,10 +47,22 @@ export class SearchState {
     const m = this.m;
     const n = popcount(mask);
     if (!n) return;
-    const v = (m.vol[i] / n) * sgn, q = (m.pcs[i] / n) * sgn, k = (m.wt[i] / n) * sgn;
     const r = m.rid[i];
     const g = (m.groupP[p] * m.GR + m.groupR[r]) * 7;
     const pb = p * 7, rb = r * 7;
+    if (m.share) {
+      // real rhythm: each day gets its own share of the week
+      const b = (i * 128 + mask) * 7;
+      for (let d = 0; d < 7; d++) {
+        if (!((mask >> d) & 1)) continue;
+        const f = m.share[b + d] * sgn;
+        const v = m.vol[i] * f;
+        this.DV[d] += v; this.DP[d] += m.pcs[i] * f; this.DW[d] += m.wt[i] * f; this.DC[d] += sgn;
+        this.PV[pb + d] += v; this.RV[rb + d] += v; this.G[g + d] += sgn;
+      }
+      return;
+    }
+    const v = (m.vol[i] / n) * sgn, q = (m.pcs[i] / n) * sgn, k = (m.wt[i] / n) * sgn;
     for (let d = 0; d < 7; d++) {
       if (!((mask >> d) & 1)) continue;
       this.DV[d] += v; this.DP[d] += q; this.DW[d] += k; this.DC[d] += sgn;

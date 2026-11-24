@@ -38,11 +38,20 @@ export function measurePlan(m: EngineModel, mask7: ArrayLike<number>, party: Arr
     if (!n) continue;
     storeDays += n;
     const g = (m.groupP[party[i]] * m.GR + m.groupR[m.rid[i]]) * 7;
+    const b = (i * 128 + mk) * 7;
     for (let d = 0; d < 7; d++) {
       if (!((mk >> d) & 1)) continue;
-      dayV[d] += m.vol[i] / n; dayP[d] += m.pcs[i] / n; dayW[d] += m.wt[i] / n; dayC[d] += 1;
-      PV[party[i] * 7 + d] += m.vol[i] / n;
-      RV[m.rid[i] * 7 + d] += m.vol[i] / n;
+      if (m.share) {
+        const f = m.share[b + d];
+        dayV[d] += m.vol[i] * f; dayP[d] += m.pcs[i] * f; dayW[d] += m.wt[i] * f;
+        PV[party[i] * 7 + d] += m.vol[i] * f;
+        RV[m.rid[i] * 7 + d] += m.vol[i] * f;
+      } else {
+        dayV[d] += m.vol[i] / n; dayP[d] += m.pcs[i] / n; dayW[d] += m.wt[i] / n;
+        PV[party[i] * 7 + d] += m.vol[i] / n;
+        RV[m.rid[i] * 7 + d] += m.vol[i] / n;
+      }
+      dayC[d] += 1;
       G[g + d] += 1;
     }
   }

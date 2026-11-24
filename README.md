@@ -127,3 +127,32 @@ npx tsx scripts/rota-acceptance.ts                # exact mode, fixed seed
 npx tsx scripts/rota-acceptance.ts --fast --seed 7
 npx tsx scripts/rota-acceptance.ts --w Wreg=900,Wparty=800   # try other penalties without editing the file
 ```
+npx tsx scripts/rota-acceptance.ts --fast --rhythm orders.xlsx   # split the volumes by the real rhythm of an orders file
+```
+
+### Week split: even or by the real rhythm
+
+Ritm splits a store's weekly volume over its shipment days. **Even** (default): 20 m³ and 2 days → 10 + 10,
+exactly as the reference. **By rhythm**: each shipment carries the consumption of the days it covers until the
+next shipment, by the weekday pattern Proqnoz learned from real orders (`src/rota/core/rhythm.ts`), e.g.
+Mon + Thu → 7.4 + 12.6. The switch is next to the balance; it is available once Proqnoz has sent a rhythm.
+The optimizer, the balance, Kanban, Map, analytics and the reference Excel export (share columns + formulas)
+all use the same split.
+
+## Proqnoz: next week's orders from real orders
+
+`src/forecast/`. Load an Excel of real orders of 2–4 weeks: one row = one store order for a date (the order
+date, even when the truck leaves after midnight); columns are found by their headers (ru/az/en/tr) and can be
+changed by hand. Store names / regions / formats go through the store directory ("which one is main?").
+
+- Per store forecast for the next Monday–Sunday week in every measure of the file (m³, kg, pcs) with an 80% range;
+  the method (weighted average, average, median, last week, trend) is chosen by a backtest on the past weeks.
+- **Openings**: a store with no orders in the first N weeks of the data (setting, 1 by default) and orders later
+  is new; openings per week and the expected openings of next week (Poisson range).
+- **Closures**: no orders for 15 days (setting) = closed, no forecast.
+- **Real rhythm**: the chain's daily consumption pattern and every store's own pattern, learned from how its
+  week is split between its order days (the direction "order covers the days after / before it" is chosen by fit).
+- **Send to Ritm**: forecast volumes replace Ritm's weekly volumes (the store file values are kept —
+  «Вернуть объёмы из файла»), the rhythm switches Ritm's split to "by rhythm"; new stores not in Ritm can be
+  downloaded in the Ritm store file layout.
+- Excel export (stores, weeks, openings/closures, rhythm); data stays in this browser.

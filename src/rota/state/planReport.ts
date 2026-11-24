@@ -9,6 +9,7 @@ import { baseWeights } from '../engine/pipeline';
 import { buildReport, RunReport } from '../engine/report';
 import { DAY_DIGIT } from '../types';
 import { nameKey } from '../core/names';
+import { engineSplit } from './split';
 
 export interface PlanReport {
   model: EngineModel;
@@ -18,7 +19,7 @@ export interface PlanReport {
 export function computePlanReport(ws: RotaWorkspace, rules: RuleSet | null, rulesComplete: boolean): PlanReport | null {
   if (!ws.dataset || !rules || !rulesComplete) return null;
   const stores = ws.dataset.stores;
-  const model = compileModel({ stores, original: ws.original, current: ws.current, rules });
+  const model = compileModel({ stores, original: ws.original, current: ws.current, rules, split: engineSplit(ws) });
   const index = new Map(model.parties.map((p, i) => [nameKey(p), i]));
   const mask = Uint8Array.from(stores.map(s => daysToMask(ws.current.days[s.storeCode] ?? s.originalDays, 127)));
   const party = Int32Array.from(stores.map(s => index.get(nameKey(ws.current.party[s.storeCode] ?? s.party)) ?? 0));

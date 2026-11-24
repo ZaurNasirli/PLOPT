@@ -6,6 +6,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { BarChart3, CalendarRange, FileSpreadsheet, FileText, Layers, Map as MapIcon, Redo2, Scale, Sparkles, Trash2, Undo2, Upload } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useRotaI18n } from './i18n';
+import { SplitToggle, VolumeSourceNote } from './components/SplitToggle';
 import { rotaStore, ensureRotaLoaded, useRotaState } from './store/workspace';
 import { activeRuleSet, applyFilters, buildStoreViews, dayTotals, distinct, EMPTY_FILTERS, RotaFilters } from './state/views';
 import { ALL_WEEKDAYS, RotaDataset, Weekday } from './types';
@@ -222,6 +223,7 @@ const RotaModule: React.FC = () => {
   }, [checker]);
   const balanceRight = (withConflicts: boolean) => (
     <div className="flex flex-col items-end gap-1.5">
+      <SplitToggle />
       <OptimizeButton filteredCodes={filtered.map(v => v.storeCode)} filtersOn={filtersActive(filters)} onToast={setToast} />
       {withConflicts && <button type="button" onClick={() => setShowConflicts(s => !s)} aria-pressed={showConflicts}
         className={cn('h-7 px-2 inline-flex items-center gap-1 rounded-lg border text-[12px] font-semibold cursor-pointer',
@@ -242,6 +244,7 @@ const RotaModule: React.FC = () => {
               ? <>{ws.dataset.isDemo ? t.header.demoName : ws.dataset.name} · {f(t.header.stores, { n: int(ws.dataset.stores.length) })}</>
               : t.module.subtitle}
           </div>
+          {hasData && <div className="mt-0.5"><VolumeSourceNote onToast={setToast} /></div>}
         </div>
 
         <nav className="flex items-center gap-1 overflow-x-auto" role="tablist" aria-label={t.module.title}>

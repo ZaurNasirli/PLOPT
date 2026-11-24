@@ -71,6 +71,7 @@ import { DirectoryPage } from './directory/DirectoryPage';
 
 // The Rota planning module is loaded only when its page is opened
 const RotaModule = React.lazy(() => import('./rota/RotaModule'));
+const ForecastPage = React.lazy(() => import('./forecast/ForecastPage'));
 import { 
   getStreetByClick, 
   findOrdersInBrush, 
@@ -3225,6 +3226,15 @@ export default function App() {
               <span className="hidden md:inline">{t('pageRota')}</span>
             </Button>
             <Button 
+              variant={currentPage === 'forecast' ? 'primary' : 'ghost'} 
+              size="sm" 
+              onClick={() => setCurrentPage('forecast')}
+              className="px-2.5 sm:px-3 h-8 gap-1.5 text-xs font-semibold"
+            >
+              <TrendingUp size={14} /> 
+              <span className="hidden md:inline">{t('pageForecast')}</span>
+            </Button>
+            <Button 
               variant={currentPage === 'stores' ? 'primary' : 'ghost'} 
               size="sm" 
               onClick={() => setCurrentPage('stores')}
@@ -3359,6 +3369,12 @@ export default function App() {
         )}
 
         {currentPage === 'stores' && <DirectoryPage />}
+
+        {currentPage === 'forecast' && (
+          <React.Suspense fallback={<div className="flex-1 grid place-items-center text-muted-foreground">…</div>}>
+            <ForecastPage onOpenRitm={() => setCurrentPage('rota')} />
+          </React.Suspense>
+        )}
 
         {currentPage === 'rota' && (
           <React.Suspense fallback={<div className="flex-1 grid place-items-center text-muted-foreground">…</div>}>

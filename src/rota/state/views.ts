@@ -1,8 +1,9 @@
-import { ALL_WEEKDAYS, StoreView, Weekday } from '../types';
+import { ALL_WEEKDAYS, DAY_DIGIT, StoreView, Weekday } from '../types';
 import type { RotaWorkspace } from '../store/workspace';
 import type { RuleSet } from '../rules/types';
 import { nameKey, sameDays } from '../core/names';
 import { partyWindowsFromStores } from '../data/storeImport';
+import { makeSplitter } from './split';
 
 export function activeRuleSet(ws: RotaWorkspace): RuleSet | null {
   return ws.ruleSets.find(r => r.id === ws.activeRuleSetId) ?? null;
@@ -18,6 +19,7 @@ export function partyWindowLookup(ws: RotaWorkspace, rules: RuleSet | null): Map
 export function buildStoreViews(ws: RotaWorkspace, rules: RuleSet | null): StoreView[] {
   if (!ws.dataset) return [];
   const windows = partyWindowLookup(ws, rules);
+  const split = makeSplitter(ws);
   return ws.dataset.stores.map(s => {
     const currentDays = ws.current.days[s.storeCode] ?? s.originalDays;
     const originalDays = ws.original.days[s.storeCode] ?? s.originalDays;
@@ -31,10 +33,12 @@ export function buildStoreViews(ws: RotaWorkspace, rules: RuleSet | null): Store
       currentDays,
       currentParty,
       currentPartyWindow: windows.get(nameKey(currentParty)) ?? '',
-      // weekly order split over the shipment days of the week
+      // average per shipment day; the amount of a given day comes from onDay()
       dailyVolume: n > 0 ? s.weeklyVolume / n : 0,
       dailyWeight: n > 0 ? s.weeklyWeight / n : 0,
       dailyQty: n > 0 ? s.weeklyQty / n : 0,
+      shareCur: split ? split(s.storeCode, currentDays) : null,
+      shareOrig: split ? split(s.storeCode, originalDays) : null,
       daysChanged: !sameDays(currentDays, originalDays),
       partyChanged: nameKey(currentParty) !== nameKey(originalParty),
     };
@@ -52,17 +56,26 @@ export function emptyDayTotals(): Record<Weekday, DayTotal> {
   return Object.fromEntries(ALL_WEEKDAYS.map(d => [d, { volume: 0, weight: 0, qty: 0, stores: 0 }])) as Record<Weekday, DayTotal>;
 }
 
+export type Amount = 'volume' | 'weight' | 'qty';
+const weeklyOf = (v: StoreView, m: Amount) => (m === 'volume' ? v.weeklyVolume : m === 'weight' ? v.weeklyWeight : v.weeklyQty);
+
+/** A store's amount on one day of its plan (0 if it has no shipment that day) */
+export function onDay(v: StoreView, d: Weekday, m: Amount = 'volume', which: 'current' | 'original' = 'current'): number {
+  const days = which === 'current' ? v.currentDays : v.originalDays;
+  if (!days.includes(d)) return 0;
+  const share = which === 'current' ? v.shareCur : v.shareOrig;
+  return share ? weeklyOf(v, m) * share[DAY_DIGIT[d] - 1] : weeklyOf(v, m) / days.length;
+}
+
 /** Per-day totals of a plan; `which` = current or original days */
 export function dayTotals(views: StoreView[], which: 'current' | 'original' = 'current'): Record<Weekday, DayTotal> {
   const out = emptyDayTotals();
   for (const v of views) {
     const days = which === 'current' ? v.currentDays : v.originalDays;
-    const n = days.length;
-    if (!n) continue;
     for (const d of days) {
-      out[d].volume += v.weeklyVolume / n;
-      out[d].weight += v.weeklyWeight / n;
-      out[d].qty += v.weeklyQty / n;
+      out[d].volume += onDay(v, d, 'volume', which);
+      out[d].weight += onDay(v, d, 'weight', which);
+      out[d].qty += onDay(v, d, 'qty', which);
       out[d].stores += 1;
     }
   }

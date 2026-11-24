@@ -65,6 +65,9 @@ export interface StoreView extends RotaStore {
   dailyVolume: number;
   dailyWeight: number;
   dailyQty: number;
+  /** share of the week per weekday (0 = Mon) for the real-rhythm split; null = even split */
+  shareCur?: number[] | null;
+  shareOrig?: number[] | null;
   daysChanged: boolean;
   partyChanged: boolean;
 }

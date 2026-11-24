@@ -9,6 +9,7 @@ import type { RuleSet } from '../rules/types';
 import type { PlanChecker } from '../state/checks';
 import { applyMoves, MoveResult, setLocks, updateException } from '../state/actions';
 import { nameKey, sortDays } from '../core/names';
+import { onDay } from '../state/views';
 import { checkText } from './checkText';
 import { partyColor } from './ui';
 
@@ -68,7 +69,9 @@ export const StoreDrawer: React.FC<{
           {row(t.drawer.receiving, view.receivingTime || '—')}
           {row(t.drawer.partyWindow, view.currentPartyWindow || '—')}
           {row(t.drawer.weekly, `${m3(view.weeklyVolume)} ${t.units.m3} · ${int(view.weeklyQty)} ${t.units.pcs} · ${int(view.weeklyWeight)} ${t.units.kg}`)}
-          {row(t.drawer.daily, `${m3(view.dailyVolume)} ${t.units.m3} · ${int(view.dailyQty)} ${t.units.pcs} · ${int(view.dailyWeight)} ${t.units.kg}`)}
+          {view.shareCur
+            ? row(t.drawer.byDay, `${view.currentDays.map(d => `${dayShort(d)} ${m3(onDay(view, d))}`).join(' · ')} ${t.units.m3}`)
+            : row(t.drawer.daily, `${m3(view.dailyVolume)} ${t.units.m3} · ${int(view.dailyQty)} ${t.units.pcs} · ${int(view.dailyWeight)} ${t.units.kg}`)}
         </section>
 
         <section>

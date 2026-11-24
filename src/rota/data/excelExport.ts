@@ -13,6 +13,7 @@ import type { PlanReport } from '../state/planReport';
 import { changeReasons } from '../state/analytics';
 import { daysToDigits, nameKey } from '../core/names';
 import { partyWindowLookup } from '../state/views';
+import { makeSplitter } from '../state/split';
 import { saveBlob, safeFileName } from '../core/download';
 
 type Cell = ExcelJSType.Cell;
@@ -64,6 +65,9 @@ export async function exportReferenceWorkbook(ws: RotaWorkspace, rules: RuleSet 
   const dayShort = (d: Weekday) => t.days.short[d];
   const heads = FIELD_ORDER.map(f => ws.dataset?.headers?.[f] || t.importer.fields[f]);
   const chainWords = { up: X.change.partyUp.split('{n}')[0] };
+  // real-rhythm split: per-day shares are written next to the day flags and the analysis uses them
+  const split = makeSplitter(ws);
+  const shareCol = (d: Weekday) => `${X.cols.share} ${dayShort(d)}`;
 
   // ---------------------------------------------------------------- store sheets
   const storeSheet = (name: string, after: boolean) => {
@@ -71,6 +75,7 @@ export async function exportReferenceWorkbook(ws: RotaWorkspace, rules: RuleSet 
     const cols = [...heads, X.cols.dayCount];
     if (after) cols.push(X.cols.prevDays, X.cols.prevDayCount, X.cols.prevParty, X.cols.change);
     cols.push(X.cols.dailyV, X.cols.dailyW, X.cols.dailyQ, ...ALL_WEEKDAYS.map(dayShort));
+    if (split) cols.push(...ALL_WEEKDAYS.map(shareCol));
     header(sh, 1, cols);
     const ci = new Map(cols.map((c, i) => [c, i + 1]));
     const nCol = C(ci.get(X.cols.dayCount)!);
@@ -107,6 +112,10 @@ export async function exportReferenceWorkbook(ws: RotaWorkspace, rules: RuleSet 
       sh.getCell(r, ci.get(X.cols.dailyW)!).value = { formula: `K${r}/${nCol}${r}` };
       sh.getCell(r, ci.get(X.cols.dailyQ)!).value = { formula: `L${r}/${nCol}${r}` };
       ALL_WEEKDAYS.forEach((d, k) => { sh.getCell(r, ci.get(dayShort(d))!).value = { formula: `IF(ISNUMBER(FIND("${k + 1}",$F${r})),1,0)` }; });
+      if (split) {
+        const shares = split(v.storeCode, days);
+        ALL_WEEKDAYS.forEach((d, k) => { const c = sh.getCell(r, ci.get(shareCol(d))!); c.value = shares[k]; c.numFmt = '0.0%'; });
+      }
     });
     for (let r = 2; r <= L; r++) {
       for (let c = 1; c <= cols.length; c++) { const cell = sh.getCell(r, c); cell.font = F; cell.border = BORDER; }
@@ -119,6 +128,7 @@ export async function exportReferenceWorkbook(ws: RotaWorkspace, rules: RuleSet 
     const widths: Record<number, number> = { 1: 9, 2: 24, 3: 15, 4: 20, 5: 12, 6: 9, 7: 10, 8: 10, 9: 10, 10: 9, 11: 10, 12: 9, 13: 14, 14: 14 };
     cols.forEach((_, k) => { sh.getColumn(k + 1).width = widths[k + 1] ?? 11; });
     for (const d of ALL_WEEKDAYS) sh.getColumn(ci.get(dayShort(d))!).width = 6;
+    if (split) for (const d of ALL_WEEKDAYS) sh.getColumn(ci.get(shareCol(d))!).width = 8;
     if (after) { sh.getColumn(ci.get(X.cols.prevParty)!).width = 15; sh.getColumn(ci.get(X.cols.change)!).width = 32; }
     sh.getRow(1).height = 42;
     sh.views = [{ state: 'frozen', xSplit: 2, ySplit: 1 }];
@@ -142,14 +152,17 @@ export async function exportReferenceWorkbook(ws: RotaWorkspace, rules: RuleSet 
     if (numFmt) cell.numFmt = numFmt;
     return cell;
   };
-  const MET: Array<{ name: string; col: string | null; fmt: string }> = [
-    { name: X.metrics.m3, col: X.cols.dailyV, fmt: '0.0' },
-    { name: X.metrics.kg, col: X.cols.dailyW, fmt: '#,##0' },
-    { name: X.metrics.pcs, col: X.cols.dailyQ, fmt: '#,##0' },
-    { name: X.metrics.stores, col: null, fmt: '0' },
+  const MET: Array<{ name: string; col: string | null; weekly: string | null; fmt: string }> = [
+    { name: X.metrics.m3, col: X.cols.dailyV, weekly: 'J', fmt: '0.0' },
+    { name: X.metrics.kg, col: X.cols.dailyW, weekly: 'K', fmt: '#,##0' },
+    { name: X.metrics.pcs, col: X.cols.dailyQ, weekly: 'L', fmt: '#,##0' },
+    { name: X.metrics.stores, col: null, weekly: null, fmt: '0' },
   ];
+  /** a store's amount on day d: daily × flag (even split) or weekly × share (rhythm) */
+  const dayAmount = (s: 0 | 1, m: (typeof MET)[number], d: Weekday): [string, string] =>
+    split && m.weekly ? [rngL(s, m.weekly), rng(s, shareCol(d))] : [rng(s, m.col!), rng(s, dayShort(d))];
   set(1, 1, X.title, FT);
-  set(2, 1, fmt(X.note, { before, after: afterName }), FI);
+  set(2, 1, fmt(split ? X.noteRhythm : X.note, { before, after: afterName }), FI);
   let row = 4;
   set(row, 1, X.s1, FH);
   row++;
@@ -162,7 +175,7 @@ export async function exportReferenceWorkbook(ws: RotaWorkspace, rules: RuleSet 
     for (const s of [0, 1] as const) {
       MET.forEach((m, j) => {
         const flag = rng(s, dayShort(d));
-        set(row, 2 + s * 4 + j, { formula: m.col ? `SUMPRODUCT(${rng(s, m.col)},${flag})` : `SUM(${flag})` }, F, m.fmt);
+        set(row, 2 + s * 4 + j, { formula: m.col ? `SUMPRODUCT(${dayAmount(s, m, d).join(',')})` : `SUM(${flag})` }, F, m.fmt);
       });
     }
     void k;
@@ -243,7 +256,7 @@ export async function exportReferenceWorkbook(ws: RotaWorkspace, rules: RuleSet 
           const base = s === 0 ? 2 : 2 + 8;
           dl.forEach((d, j) => {
             const cond = `(${rng(s, keyCol)}=$A${row})`;
-            const val = m.col ? `SUMPRODUCT(${cond}*${rng(s, m.col)}*${rng(s, dayShort(d))})` : `SUMPRODUCT(${cond}*${rng(s, dayShort(d))})`;
+            const val = m.col ? `SUMPRODUCT(${cond}*${dayAmount(s, m, d).join('*')})` : `SUMPRODUCT(${cond}*${rng(s, dayShort(d))})`;
             set(row, base + j, { formula: val }, F, m.fmt);
           });
           set(row, base + dl.length, { formula: `SUM(${C(base)}${row}:${C(base + dl.length - 1)}${row})` }, FB, m.fmt);

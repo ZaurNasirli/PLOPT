@@ -8,6 +8,8 @@ import { mulberry32 } from './rng';
 import { DIGIT_DAY, RotaStore, Weekday } from '../types';
 import { emptyRuleSet, RuleSet, SegmentRule } from '../rules/types';
 import { planFromDataset } from '../store/workspace';
+import { measurePlan } from './report';
+import { scheduleShares } from '../core/rhythm';
 
 const days = (s: string) => s.split('').map(c => DIGIT_DAY[+c]) as Weekday[];
 
@@ -156,5 +158,51 @@ describe('cost', () => {
       expect(m.partyOpt[i].has(res.party[i])).toBe(true);
       if (inp.stores[i].region !== 'A') { expect(res.mask[i]).toBe(m.cmask[i]); expect(res.party[i]).toBe(m.cparty[i]); }
     }
+  });
+});
+
+describe('rhythm split', () => {
+  const chain = [0.13, 0.12, 0.12, 0.13, 0.16, 0.18, 0.16];
+  const split = { direction: 'forward' as const, chain, stores: { S1: [0.3, 0.1, 0.1, 0.1, 0.1, 0.2, 0.1] } };
+
+  it('day totals follow the store shares, the week total stays; Δ still matches full costs', () => {
+    const inp = { ...input(), split };
+    const m = compileModel(inp);
+    const base = baseWeights(rules(), { mode: 'exact', chgFactor: 1, grpFactor: 1, seed: 1 });
+    const rnd = mulberry32(5);
+    const start = originalStart(m, rnd);
+    const s = new SearchState(m, start.mask, start.party, phaseWeights(base, 1, 1));
+    // expected day volumes from the shares
+    const exp = new Array(7).fill(0);
+    inp.stores.forEach((st, i) => {
+      const ds: number[] = [];
+      for (let d = 0; d < 7; d++) if ((start.mask[i] >> d) & 1) ds.push(d);
+      const sh = scheduleShares(split.stores[st.storeCode as 'S1'] ?? chain, ds, 'forward');
+      ds.forEach(d => { exp[d] += st.weeklyVolume * sh[d]; });
+    });
+    for (let d = 0; d < 7; d++) expect(s.DV[d]).toBeCloseTo(exp[d], 9);
+    const total = inp.stores.reduce((a, st) => a + st.weeklyVolume, 0);
+    expect(Array.from(s.DV).reduce((a, b) => a + b, 0)).toBeCloseTo(total, 8);
+    const mp = measurePlan(m, s.mask, s.party);
+    for (let d = 0; d < 7; d++) expect(mp.dayV[d]).toBeCloseTo(exp[d], 9);
+
+    for (let k = 0; k < 200; k++) {
+      const i = m.active[Math.floor(rnd() * m.active.length)];
+      const counts = m.allowedCounts[i];
+      const list = m.masksByCount[i][counts[Math.floor(rnd() * counts.length)]];
+      const mk = list[Math.floor(rnd() * list.length)];
+      const opts = [...m.partyOpt[i].keys()];
+      const p = opts[Math.floor(rnd() * opts.length)];
+      const before = s.total();
+      const d = s.delta(i, mk, p);
+      s.apply(i, s.mask[i], s.party[i], -1);
+      s.mask[i] = mk; s.party[i] = p;
+      s.apply(i, mk, p, 1);
+      expect(s.total() - before).toBeCloseTo(d, 8);
+    }
+  });
+
+  it('without a split the model keeps the even split (no share table)', () => {
+    expect(compileModel(input()).share).toBeNull();
   });
 });

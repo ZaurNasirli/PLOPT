@@ -7,6 +7,7 @@
 import { useSyncExternalStore } from 'react';
 import type { PlanSnapshot, RotaDataset } from '../types';
 import type { RuleSet } from '../rules/types';
+import type { RhythmData, SplitMode } from '../core/rhythm';
 
 export type ScenarioKind = 'original' | 'auto' | 'manual';
 
@@ -25,6 +26,17 @@ export interface RotaScenario {
   runInfo?: { seed: number; mode: 'fast' | 'exact' } | null;
 }
 
+/** Weekly volumes replaced by a Proqnoz forecast; `previous` keeps the store file values */
+export interface VolumeSource {
+  kind: 'forecast';
+  /** Monday of the forecast week */
+  week: string;
+  file: string;
+  at: string;
+  /** store code -> [m³, kg, pcs] of the store file, for the stores the forecast changed */
+  previous: Record<string, [number, number, number]>;
+}
+
 export interface RotaWorkspace {
   version: 1;
   dataset: RotaDataset | null;
@@ -33,6 +45,11 @@ export interface RotaWorkspace {
   ruleSets: RuleSet[];
   activeRuleSetId: string | null;
   scenarios: RotaScenario[];
+  /** real rhythm learned by Proqnoz (null = not learned yet) */
+  rhythm: RhythmData | null;
+  /** how a store's weekly volume is split over its shipment days */
+  splitMode: SplitMode;
+  volumeSource: VolumeSource | null;
   updatedAt: string;
 }
 
@@ -47,7 +64,8 @@ export const emptyPlan = (): PlanSnapshot => ({ days: {}, party: {} });
 export function emptyWorkspace(): RotaWorkspace {
   return {
     version: 1, dataset: null, original: emptyPlan(), current: emptyPlan(),
-    ruleSets: [], activeRuleSetId: null, scenarios: [], updatedAt: new Date(0).toISOString(),
+    ruleSets: [], activeRuleSetId: null, scenarios: [], rhythm: null, splitMode: 'uniform', volumeSource: null,
+    updatedAt: new Date(0).toISOString(),
   };
 }
 
@@ -58,6 +76,12 @@ export function planFromDataset(dataset: RotaDataset): PlanSnapshot {
     plan.party[s.storeCode] = s.party;
   }
   return plan;
+}
+
+function validRhythm(x: unknown): x is RhythmData {
+  const r = x as Partial<RhythmData> | null;
+  return !!r && typeof r === 'object' && Array.isArray(r.chain) && r.chain.length === 7
+    && (r.direction === 'forward' || r.direction === 'backward') && !!r.stores && typeof r.stores === 'object';
 }
 
 /** Accepts anything (cloud / JSON file / older versions) and returns a valid workspace */
@@ -86,6 +110,9 @@ export function normalizeWorkspace(raw: unknown): RotaWorkspace {
   ws.ruleSets = Array.isArray(r.ruleSets) ? r.ruleSets : [];
   ws.activeRuleSetId = typeof r.activeRuleSetId === 'string' && ws.ruleSets.some(x => x.id === r.activeRuleSetId) ? r.activeRuleSetId : ws.ruleSets[0]?.id ?? null;
   ws.scenarios = Array.isArray(r.scenarios) ? r.scenarios : [];
+  ws.rhythm = validRhythm(r.rhythm) ? r.rhythm : null;
+  ws.splitMode = r.splitMode === 'rhythm' && ws.rhythm ? 'rhythm' : 'uniform';
+  ws.volumeSource = r.volumeSource && typeof r.volumeSource === 'object' && r.volumeSource.previous && typeof r.volumeSource.previous === 'object' ? r.volumeSource : null;
   ws.updatedAt = typeof r.updatedAt === 'string' ? r.updatedAt : new Date().toISOString();
   return ws;
 }
@@ -239,6 +266,16 @@ export function ensureRotaLoaded() {
   });
 }
 
+/** Resolves once the saved workspace is loaded (other modules write into it, e.g. Proqnoz) */
+export function whenRotaLoaded(): Promise<void> {
+  ensureRotaLoaded();
+  if (state.loaded) return Promise.resolve();
+  return new Promise(resolve => {
+    const l = () => { if (state.loaded) { listeners.delete(l); resolve(); } };
+    listeners.add(l);
+  });
+}
+
 export const rotaStore = {
   getState: () => state,
   subscribe(l: () => void) {
@@ -248,11 +285,51 @@ export const rotaStore = {
 
   setDataset(dataset: RotaDataset) {
     const plan = planFromDataset(dataset);
-    set({ ws: touch({ ...state.ws, dataset, original: plan, current: plan, scenarios: [] }), past: [], future: [] }, true);
+    set({ ws: touch({ ...state.ws, dataset, original: plan, current: plan, scenarios: [], volumeSource: null }), past: [], future: [] }, true);
   },
 
   clearDataset() {
-    set({ ws: touch({ ...state.ws, dataset: null, original: emptyPlan(), current: emptyPlan(), scenarios: [] }), past: [], future: [] }, true);
+    set({ ws: touch({ ...state.ws, dataset: null, original: emptyPlan(), current: emptyPlan(), scenarios: [], volumeSource: null }), past: [], future: [] }, true);
+  },
+
+  setSplitMode(mode: SplitMode) {
+    if (mode === 'rhythm' && !state.ws.rhythm) return;
+    set({ ws: touch({ ...state.ws, splitMode: mode }) }, true);
+  },
+
+  /** Rhythm from Proqnoz; `splitMode` switches to it when asked */
+  setRhythm(rhythm: RhythmData | null, useIt = false) {
+    const splitMode = rhythm ? (useIt ? 'rhythm' : state.ws.splitMode) : 'uniform';
+    set({ ws: touch({ ...state.ws, rhythm, splitMode }) }, true);
+  },
+
+  /** Weekly volumes from a forecast (store code -> [m³, kg, pcs]); the store file values are kept to go back */
+  applyForecastVolumes(volumes: Map<string, [number, number, number]>, info: { week: string; file: string }): number {
+    const ds = state.ws.dataset;
+    if (!ds) return 0;
+    const previous = { ...(state.ws.volumeSource?.previous ?? {}) };
+    let changed = 0;
+    const stores = ds.stores.map(s => {
+      const v = volumes.get(s.storeCode);
+      if (!v) return s;
+      if (!previous[s.storeCode]) previous[s.storeCode] = [s.weeklyVolume, s.weeklyWeight, s.weeklyQty];
+      changed++;
+      return { ...s, weeklyVolume: v[0], weeklyWeight: v[1], weeklyQty: v[2] };
+    });
+    if (!changed) return 0;
+    set({ ws: touch({ ...state.ws, dataset: { ...ds, stores }, volumeSource: { kind: 'forecast', week: info.week, file: info.file, at: new Date().toISOString(), previous } }) }, true);
+    return changed;
+  },
+
+  /** Back to the volumes of the store file */
+  restoreFileVolumes() {
+    const ds = state.ws.dataset, src = state.ws.volumeSource;
+    if (!ds || !src) return;
+    const stores = ds.stores.map(s => {
+      const p = src.previous[s.storeCode];
+      return p ? { ...s, weeklyVolume: p[0], weeklyWeight: p[1], weeklyQty: p[2] } : s;
+    });
+    set({ ws: touch({ ...state.ws, dataset: { ...ds, stores }, volumeSource: null }) }, true);
   },
 
   /** Any change of days / parties: one undo step */

@@ -10,11 +10,19 @@ import { ALL_WEEKDAYS, DAY_DIGIT, PlanSnapshot, RotaStore, Weekday } from '../ty
 import { nameKey } from '../core/names';
 import { parseWindow, TimeWindow, windowsOverlap } from '../core/time';
 import type { PartyRule, RuleSet, SegmentRule, WeightCode } from '../rules/types';
+import { maskShares, RhythmDirection } from '../core/rhythm';
 
 export interface EngineScope {
   regions?: string[];
   parties?: string[];
   storeCodes?: string[];
+}
+
+/** Real-rhythm split of the weekly volumes (from Proqnoz); absent = even split (weekly / n) */
+export interface EngineSplit {
+  direction: RhythmDirection;
+  chain: number[];
+  stores: Record<string, number[]>;
 }
 
 export interface EngineInput {
@@ -24,6 +32,7 @@ export interface EngineInput {
   rules: RuleSet;
   /** only these stores are optimized; the others keep their current plan but count in the totals */
   scope?: EngineScope | null;
+  split?: EngineSplit | null;
 }
 
 export interface Weights {
@@ -46,6 +55,8 @@ export interface EngineModel {
   vol: Float64Array;
   pcs: Float64Array;
   wt: Float64Array;
+  /** rhythm split: share[(i*128 + mask)*7 + d] of store i's week on day d; null = weekly / n */
+  share: Float64Array | null;
   rid: Int32Array;
   /** original party index of each store */
   p0: Int32Array;
@@ -401,9 +412,23 @@ export function compileModel(input: EngineInput): EngineModel {
   const rvol = new Float64Array(R);
   for (let i = 0; i < S; i++) rvol[rid[i]] += vol[i];
 
+  // rhythm split: the share of every day for every possible mask (bit 6 = Sunday, for the file plan)
+  let share: Float64Array | null = null;
+  if (input.split) {
+    const sp = input.split;
+    share = new Float64Array(S * 128 * 7);
+    stores.forEach((s, i) => {
+      const profile = sp.stores[s.storeCode] ?? sp.chain;
+      for (let mk = 1; mk < 128; mk++) {
+        const sh = maskShares(profile, mk, sp.direction);
+        share!.set(sh, (i * 128 + mk) * 7);
+      }
+    });
+  }
+
   return {
     S, P, R, codes: stores.map(s => s.storeCode), parties, partyCodes, regions, wd, wdMask,
-    vol, pcs, wt, rid, p0, omask, on, rescheduled, cmask, cparty, allowedMask, masksByCount, allowedCounts, partyOpt,
+    vol, pcs, wt, share, rid, p0, omask, on, rescheduled, cmask, cparty, allowedMask, masksByCount, allowedCounts, partyOpt,
     active: Int32Array.from(active), movable: Int32Array.from(movable), spc,
     groupP, groupR, GP, GR, N: g.groupMin ?? 0,
     budget, budgetCap: g.budgetCap === true, useWeight: g.useWeight === true,

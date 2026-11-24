@@ -2,6 +2,7 @@
 import { ALL_WEEKDAYS, DAY_DIGIT, StoreView, Weekday } from '../types';
 import type { RuleSet } from '../rules/types';
 import { nameKey, sameDays } from '../core/names';
+import { onDay } from './views';
 
 export type Metric = 'volume' | 'weight' | 'qty' | 'stores';
 export type Which = 'original' | 'current';
@@ -9,11 +10,6 @@ export type Which = 'original' | 'current';
 const daysOf = (v: StoreView, w: Which) => (w === 'current' ? v.currentDays : v.originalDays);
 const partyOf = (v: StoreView, w: Which) => (w === 'current' ? v.currentParty : v.party);
 
-function share(v: StoreView, metric: Metric, n: number): number {
-  if (metric === 'stores') return 1;
-  const total = metric === 'volume' ? v.weeklyVolume : metric === 'weight' ? v.weeklyWeight : v.weeklyQty;
-  return n ? total / n : 0;
-}
 
 /** key -> 7 day totals */
 export function dimTotals(views: StoreView[], which: Which, keyOf: (v: StoreView, w: Which) => string, metric: Metric): Map<string, number[]> {
@@ -23,7 +19,7 @@ export function dimTotals(views: StoreView[], which: Which, keyOf: (v: StoreView
     const k = keyOf(v, which);
     let row = out.get(k);
     if (!row) out.set(k, (row = new Array(7).fill(0)));
-    for (const d of days) row[DAY_DIGIT[d] - 1] += share(v, metric, days.length);
+    for (const d of days) row[DAY_DIGIT[d] - 1] += metric === 'stores' ? 1 : onDay(v, d, metric, which);
   }
   return out;
 }

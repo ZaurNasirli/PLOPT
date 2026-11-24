@@ -1,6 +1,7 @@
 /**
  * Acceptance run of the Rota optimizer (section 4.8 of the task):
- *   npx tsx scripts/rota-acceptance.ts [stores.xlsx] [rules.xlsx] [--fast] [--seed N]
+ *   npx tsx scripts/rota-acceptance.ts [stores.xlsx] [rules.xlsx] [--fast] [--seed N] [--rhythm orders.xlsx]
+ * --rhythm: split the weekly volumes by the real rhythm learned from an orders file (Proqnoz).
  * Defaults: _rota_import/try_2.xlsx and _rota_import/Pravila_primer.xlsx.
  */
 import { readFileSync } from 'fs';
@@ -14,9 +15,12 @@ import { SearchState, phaseWeights } from '../src/rota/engine/state';
 import { baseWeights, localRunners, runPipeline } from '../src/rota/engine/pipeline';
 import { buildReport } from '../src/rota/engine/report';
 import { DAY_DIGIT } from '../src/rota/types';
+import { autoDetectOrderMapping, buildOrders, readOrdersWorkbook } from '../src/forecast/ordersImport';
+import { analyze } from '../src/forecast/engine';
+import type { EngineSplit } from '../src/rota/engine/model';
 
 const args = process.argv.slice(2);
-const files = args.filter((a, k) => !a.startsWith('--') && !['--seed', '--dump', '--w'].includes(args[k - 1]));
+const files = args.filter((a, k) => !a.startsWith('--') && !['--seed', '--dump', '--w', '--rhythm'].includes(args[k - 1]));
 const storesPath = files[0] ?? '_rota_import/try_2.xlsx';
 const rulesPath = files[1] ?? '_rota_import/Pravila_primer.xlsx';
 const mode = args.includes('--fast') ? 'fast' : 'exact';
@@ -36,7 +40,15 @@ const t = getRotaDict('ru');
   const errors = validateRules(rules, stores, t).filter(i => i.severity === 'error');
   if (errors.length) { console.error('rules have errors:', errors.map(e => e.text)); process.exit(1); }
   const plan = planFromDataset({ name: '', importedAt: '', volumeMode: 'weekly', stores });
-  const model = compileModel({ stores, original: plan, current: plan, rules });
+  let split: EngineSplit | null = null;
+  const rhIdx = args.indexOf('--rhythm');
+  if (rhIdx >= 0) {
+    const os = readOrdersWorkbook(ab(args[rhIdx + 1]), args[rhIdx + 1]);
+    const a = analyze(buildOrders(os, autoDetectOrderMapping(os.headers)).rows);
+    split = { direction: a.rhythm.direction, chain: a.rhythm.chain, stores: Object.fromEntries(a.stores.filter(s => s.orderDays.length >= 2).map(s => [s.code, s.profile])) };
+    console.log(`rhythm: ${a.rhythm.direction}, chain ${a.rhythm.chain.map(x => (x * 100).toFixed(1)).join(' ')}`);
+  }
+  const model = compileModel({ stores, original: plan, current: plan, rules, split });
   const opts = { mode: mode as 'fast' | 'exact', chgFactor: 1, grpFactor: 1, seed };
   const base = baseWeights(rules, opts);
   const t0 = Date.now();

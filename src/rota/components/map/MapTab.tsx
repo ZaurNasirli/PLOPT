@@ -16,6 +16,7 @@ import { ALL_WEEKDAYS, StoreView, Weekday } from '../../types';
 import type { PlanChecker } from '../../state/checks';
 import type { MoveRequest } from '../../state/actions';
 import { nameKey } from '../../core/names';
+import { onDay } from '../../state/views';
 import { partyColor, ToggleChip } from '../ui';
 import { checkText } from '../checkText';
 
@@ -313,7 +314,7 @@ const MiniMap: React.FC<MapProps & { day: Weekday; working: boolean; bounds: L.L
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [map, list, colorsOf, hovered]);
 
-  const vol = list.reduce((s, v) => s + v.dailyVolume, 0);
+  const vol = list.reduce((s, v) => s + onDay(v, day), 0);
   return (
     <div
       className={cn('rounded-xl border overflow-hidden bg-ink-0 flex flex-col', over ? 'border-brand-500 ring-2 ring-brand-300' : working ? 'border-ink-200' : 'border-dashed border-ink-300')}
@@ -388,7 +389,7 @@ const StoreList: React.FC<MapProps> = ({ views, parties, checker, hovered, onHov
                   ))}
                 </span>
               </td>
-              <td className="px-2 text-right tabular-nums text-ink-800">{m3(v.dailyVolume)}</td>
+              <td className="px-2 text-right tabular-nums text-ink-800">{v.shareCur ? v.currentDays.map(d => m3(onDay(v, d))).join(' / ') : m3(v.dailyVolume)}</td>
             </tr>
           ))}
         </tbody>
