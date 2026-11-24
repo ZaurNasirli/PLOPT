@@ -592,6 +592,7 @@ export const en = {
   orderStatusFree: 'Free',
   orderStatusInRoute: 'In route',
   orderWeight: 'weight',
+  routesShortLabel: 'routes',
   ordersShort: 'ord.',
   paramMetric: 'Metric',
   satir: 'Lines',

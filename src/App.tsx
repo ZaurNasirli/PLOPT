@@ -2799,13 +2799,13 @@ export default function App() {
     setRoutes(prev => prev.map(r => dateRouteIds.has(r.id) ? { ...r, isVisible: targetState } : r));
   };
 
-  const handleExportRoutesToPdf = () => {
+  const handleExportRoutesToPdf = async () => {
     if (routes.length === 0) {
       setSaveNotification('Нет маршрутов для экспорта!');
       setTimeout(() => setSaveNotification(null), 3000);
       return;
     }
-    const success = exportRoutesToPdf({
+    const success = await exportRoutesToPdf({
       routes,
       orders,
       truckTypes: routingLimits.truckTypes,
@@ -2817,8 +2817,8 @@ export default function App() {
     }
   };
 
-  const handleExportDateRoutesToPdf = (group: any) => {
-    const success = exportRoutesToPdf({
+  const handleExportDateRoutesToPdf = async (group: any) => {
+    const success = await exportRoutesToPdf({
       routes: group.routes,
       orders,
       truckTypes: routingLimits.truckTypes,

@@ -3,6 +3,36 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { calculateRouteLegs } from './distanceHelper';
 import { toLocalDateStr } from '../lib/utils';
+// The built-in PDF fonts have no Cyrillic / Azerbaijani letters: embed DejaVu Sans (loaded only on export)
+import dejavuRegularUrl from 'dejavu-fonts-ttf/ttf/DejaVuSans.ttf?url';
+import dejavuBoldUrl from 'dejavu-fonts-ttf/ttf/DejaVuSans-Bold.ttf?url';
+
+const PDF_FONT = 'DejaVuSans';
+let fontCache: Promise<{ regular: string; bold: string }> | null = null;
+
+function toBase64(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+
+function loadPdfFonts() {
+  if (!fontCache) {
+    const get = (url: string) => fetch(url).then(r => { if (!r.ok) throw new Error(`font ${r.status}`); return r.arrayBuffer(); }).then(toBase64);
+    fontCache = Promise.all([get(dejavuRegularUrl), get(dejavuBoldUrl)]).then(([regular, bold]) => ({ regular, bold }));
+    fontCache.catch(() => { fontCache = null; });
+  }
+  return fontCache;
+}
+
+function registerPdfFonts(doc: jsPDF, fonts: { regular: string; bold: string }) {
+  doc.addFileToVFS('DejaVuSans.ttf', fonts.regular);
+  doc.addFont('DejaVuSans.ttf', PDF_FONT, 'normal');
+  doc.addFileToVFS('DejaVuSans-Bold.ttf', fonts.bold);
+  doc.addFont('DejaVuSans-Bold.ttf', PDF_FONT, 'bold');
+  doc.setFont(PDF_FONT, 'normal');
+}
 
 export interface PdfExportOptions {
   routes: Route[];
@@ -11,7 +41,7 @@ export interface PdfExportOptions {
   title?: string;
 }
 
-export function exportRoutesToPdf({ routes, orders, truckTypes = [], title = 'Отчет по маршрутам доставки' }: PdfExportOptions): boolean {
+export async function exportRoutesToPdf({ routes, orders, truckTypes = [], title = 'Отчет по маршрутам доставки' }: PdfExportOptions): Promise<boolean> {
   if (!routes || routes.length === 0) {
     return false;
   }
@@ -22,6 +52,7 @@ export function exportRoutesToPdf({ routes, orders, truckTypes = [], title = 'О
       unit: 'mm',
       format: 'a4'
     });
+    registerPdfFonts(doc, await loadPdfFonts());
 
     const currentDate = new Date().toLocaleDateString('ru-RU', {
       year: 'numeric',
@@ -112,6 +143,7 @@ export function exportRoutesToPdf({ routes, orders, truckTypes = [], title = 'О
       ]);
 
       autoTable(doc, {
+        styles: { font: PDF_FONT },
         startY: startY,
         head: [['№', 'Заказ', 'Клиент / Магазин', 'Регион', 'Вес (кг)', 'Объем (м³)', 'Строк', 'Время', 'Дата']],
         body: tableData,

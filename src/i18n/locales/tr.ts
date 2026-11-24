@@ -592,6 +592,7 @@ export const tr = {
   orderStatusFree: 'Serbest',
   orderStatusInRoute: 'Rotada',
   orderWeight: 'ağırlık',
+  routesShortLabel: 'rota',
   ordersShort: 'sip.',
   paramMetric: 'Metrik',
   satir: 'Satır',

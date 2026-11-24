@@ -592,6 +592,7 @@ export const az = {
   orderStatusFree: 'Sərbəst',
   orderStatusInRoute: 'Marşrutda',
   orderWeight: 'çəki',
+  routesShortLabel: 'marşr.',
   ordersShort: 'sif.',
   paramMetric: 'Metrika',
   satir: 'Sətir',

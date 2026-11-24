@@ -592,6 +592,7 @@ export const ru = {
   orderStatusFree: 'Свободен',
   orderStatusInRoute: 'В маршруте',
   orderWeight: 'веса',
+  routesShortLabel: 'маршр.',
   ordersShort: 'зак.',
   paramMetric: 'Метрика',
   satir: 'Sətir',
