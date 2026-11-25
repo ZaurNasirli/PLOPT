@@ -18,7 +18,13 @@ import {
   generateRouteExplanation,
   calculateSolutionMetrics
 } from './optimizer';
-import { runOptimizer } from './optimizer/workerClient';
+import { runOptimizer, OptimizerEngine } from './optimizer/workerClient';
+
+const ENGINE_LABEL: Record<OptimizerEngine, { title: string; prefix: string }> = {
+  smart: { title: 'Hybrid VRP Optimizer', prefix: 'SMART' },
+  sisr: { title: 'SISR (разрезание цепочек)', prefix: 'SISR' },
+  hgs: { title: 'HGS (гибридный генетический поиск)', prefix: 'HGS' },
+};
 
 // Re-export everything from the optimizer module for external consumers
 export * from './optimizer';
@@ -89,8 +95,10 @@ export const runSmartLogistics = async (
   orders: Order[],
   limits: RoutingLimits,
   onProgress: (p: ProgressUpdate) => void,
-  userConfig?: Partial<SmartRoutingConfig>
+  userConfig?: Partial<SmartRoutingConfig>,
+  engine: OptimizerEngine = 'smart'
 ): Promise<Route[]> => {
+  const label = ENGINE_LABEL[engine];
   const selectedMode: OptimizationMode = 
     (limits as any).optimizationMode || 
     userConfig?.mode || 
@@ -100,8 +108,8 @@ export const runSmartLogistics = async (
 
   onProgress({
     percent: 3,
-    message: `🧠 Hybrid VRP Optimizer [${selectedMode.toUpperCase()}]: Подготовка данных...`,
-    log: `Инициализация Hybrid VRP Optimizer (${orders.length} заказов, режим: ${selectedMode})`
+    message: `🧠 ${label.title} [${selectedMode.toUpperCase()}]: Подготовка данных...`,
+    log: `Инициализация ${label.title} (${orders.length} заказов, режим: ${selectedMode})`
   });
   await new Promise(r => setTimeout(r, 10));
 
@@ -178,7 +186,7 @@ export const runSmartLogistics = async (
 
     onProgress({
       percent: baseProgress + 10,
-      message: `🧠 Запуск Multi-Start Hybrid VRP (${config.multiStartIterations} независимых решений)...`,
+      message: engine === 'smart' ? `🧠 Запуск Multi-Start Hybrid VRP (${config.multiStartIterations} независимых решений)...` : `🧠 Запуск ${label.title}...`,
       log: `Матрица готова (${matrix.isRealRoad ? 'OSRM 100% реальные дороги' : `реальные дороги ${matrix.coveragePercent}%`}; из кэша ${matrix.cachedPairsCount} пар, запрошено ${matrix.fetchedPairsCount}). Оптимизация...`
     });
     await new Promise(r => setTimeout(r, 10));
@@ -196,7 +204,8 @@ export const runSmartLogistics = async (
           message: `🧠 ${msg}`,
           log: msg
         });
-      }
+      },
+      engine
     );
 
     // Compute metrics and build final Route entities
@@ -241,8 +250,8 @@ export const runSmartLogistics = async (
       ];
 
       finalRoutes.push({
-        id: `route-smart-${runId}-${routeSeq + 1}`,
-        name: `SMART-${routeSeq + 1}`,
+        id: `route-${engine}-${runId}-${routeSeq + 1}`,
+        name: `${label.prefix}-${routeSeq + 1}`,
         orderIds: routeOrders.map(o => o.id),
         color: `hsl(${hue}, 75%, 48%)`,
         isVisible: true,
@@ -267,7 +276,7 @@ export const runSmartLogistics = async (
 
   onProgress({
     percent: 100,
-    message: `🧠 Hybrid VRP Optimizer завершен! Сформировано ${finalRoutes.length} маршрутов.`,
+    message: `🧠 ${label.title} завершен! Сформировано ${finalRoutes.length} маршрутов.`,
     log: `Оптимизация завершена успешно. Создано ${finalRoutes.length} сбалансированных маршрутов.`
   });
 

@@ -2,15 +2,18 @@ import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { X, Play, BarChart2, CheckCircle2, TrendingDown, TrendingUp, Clock, Truck, ShieldCheck, RefreshCw } from 'lucide-react';
 import { runComprehensiveBenchmark, BenchmarkReport } from '../services/optimizer/Benchmark';
+import type { AdvancedEngine } from '../services/optimizer/advanced';
 import { cn } from '../lib/utils';
 import { useTranslation } from '../i18n/I18nContext';
 
 interface BenchmarkModalProps {
   isOpen: boolean;
   onClose: () => void;
+  /** a new router to compare with SMART (otherwise: old SMART vs SMART) */
+  engine?: AdvancedEngine;
 }
 
-export const BenchmarkModal: React.FC<BenchmarkModalProps> = ({ isOpen, onClose }) => {
+export const BenchmarkModal: React.FC<BenchmarkModalProps> = ({ isOpen, onClose, engine }) => {
   const { t } = useTranslation();
   const [isRunning, setIsRunning] = useState(false);
   const [report, setReport] = useState<BenchmarkReport | null>(null);
@@ -22,7 +25,7 @@ export const BenchmarkModal: React.FC<BenchmarkModalProps> = ({ isOpen, onClose 
     try {
       // Allow UI to update
       await new Promise(r => setTimeout(r, 100));
-      const res = await runComprehensiveBenchmark();
+      const res = await runComprehensiveBenchmark(undefined, engine);
       setReport(res);
     } catch (e) {
       console.error('Benchmark failed:', e);
@@ -47,7 +50,7 @@ export const BenchmarkModal: React.FC<BenchmarkModalProps> = ({ isOpen, onClose 
             </div>
             <div>
               <h2 className="text-base font-bold text-foreground">
-                🧪 Benchmark: Baseline SMART vs Improved Hybrid VRP
+                {engine ? `🧪 Benchmark: SMART vs ${engine.toUpperCase()}` : '🧪 Benchmark: Baseline SMART vs Improved Hybrid VRP'}
               </h2>
               <p className="text-xs text-muted-foreground mt-0.5">
                 Автоматическое тестирование и объективное сравнение на 10, 30, 100 и 300 точках

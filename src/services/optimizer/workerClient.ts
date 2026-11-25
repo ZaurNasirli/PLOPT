@@ -3,6 +3,10 @@ import type { RoutingLimits } from '../routingService';
 import { RoadMatrixLookup } from './RoadMatrix';
 import { SmartVRPConfig } from './types';
 import { optimizeMultiStartVRP } from './MultiStartOptimizer';
+import { optimizeAdvanced } from './advanced';
+
+/** Which search runs on the prepared matrix: SMART (multi-start + LNS) or one of the advanced routers */
+export type OptimizerEngine = 'smart' | 'sisr' | 'hgs';
 
 export interface OptimizerJob {
   orderIndices: number[];
@@ -14,6 +18,7 @@ export interface OptimizerJob {
   hasFallback: boolean;
   limits: RoutingLimits;
   config: SmartVRPConfig;
+  engine: OptimizerEngine;
 }
 
 /**
@@ -26,9 +31,12 @@ export async function runOptimizer(
   matrix: RoadMatrixLookup,
   limits: RoutingLimits,
   config: SmartVRPConfig,
-  onProgress?: (percent: number, message: string) => void
+  onProgress?: (percent: number, message: string) => void,
+  engine: OptimizerEngine = 'smart'
 ): Promise<number[][]> {
-  const inThread = () => optimizeMultiStartVRP(orderIndices, orders, matrix, limits, config, onProgress);
+  const inThread = () => engine === 'smart'
+    ? optimizeMultiStartVRP(orderIndices, orders, matrix, limits, config, onProgress)
+    : optimizeAdvanced(engine, orderIndices, orders, matrix, limits, config, onProgress);
   if (typeof Worker === 'undefined' || typeof window === 'undefined') return inThread();
 
   let worker: Worker;
@@ -49,7 +57,8 @@ export async function runOptimizer(
     isRealRoad: matrix.isRealRoad,
     hasFallback: matrix.hasFallback,
     limits: JSON.parse(JSON.stringify(limits)),
-    config: JSON.parse(JSON.stringify(config))
+    config: JSON.parse(JSON.stringify(config)),
+    engine
   };
 
   try {

@@ -1512,6 +1512,12 @@ export default function App() {
           resultRoutes = await runSmartLogistics(availableOrders, limits, onProgress);
           break;
         }
+        case 'sisr':
+        case 'hgs': {
+          const { runSmartLogistics } = await import('./services/smartLogisticsOptimizer');
+          resultRoutes = await runSmartLogistics(availableOrders, limits, onProgress, undefined, algo);
+          break;
+        }
         case 'savings': resultRoutes = await runPartitioned(runSavings, availableOrders, limits, onProgress); break;
         case 'sweep': resultRoutes = await runPartitioned(runSweep, availableOrders, limits, onProgress); break;
         case 'cluster': resultRoutes = await runPartitioned(runCluster, availableOrders, limits, onProgress); break;

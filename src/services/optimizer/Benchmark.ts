@@ -5,6 +5,7 @@ import { buildRoadMatrixLookup, RoadMatrixLookup } from './DistanceMatrix';
 import { getVRPConfigForMode } from './types';
 import { optimizeMultiStartVRP } from './MultiStartOptimizer';
 import { calculateSolutionMetrics } from './OptimizationResult';
+import { optimizeAdvanced, AdvancedEngine } from './advanced';
 
 export interface AlgorithmDetailedMetrics {
   distanceKm: number;
@@ -188,7 +189,9 @@ export function generateBenchmarkPoints(count: number, seed: number = 42): Order
  * Runs comparative benchmark for 10, 30, 100, and 300 test points.
  */
 export async function runComprehensiveBenchmark(
-  limits?: Partial<RoutingLimits>
+  limits?: Partial<RoutingLimits>,
+  /** compare SMART (baseline) with this new router instead of the old SMART with SMART */
+  engine?: AdvancedEngine
 ): Promise<BenchmarkReport> {
   const effectiveLimits: RoutingLimits = {
     maxWeight: 1500,
@@ -216,28 +219,21 @@ export async function runComprehensiveBenchmark(
     const orderIndices = orders.map((_, idx) => idx + 1);
 
     // --- 1. BASELINE RUN: Real Old SMART Algorithm ---
+    const improvedMode = count >= 200 ? 'fast' : (count > 50 ? 'balanced' : 'quality');
+    const improvedConfig = getVRPConfigForMode(improvedMode);
     const t0 = performance.now();
-    const baselineRoutes = runBaselineOldSmart(
-      orderIndices,
-      orders,
-      matrix,
-      effectiveLimits
-    );
+    const baselineRoutes = engine
+      ? await optimizeMultiStartVRP(orderIndices, orders, matrix, effectiveLimits, improvedConfig)
+      : runBaselineOldSmart(orderIndices, orders, matrix, effectiveLimits);
     const baselineTime = Math.max(1, Math.round(performance.now() - t0));
-    const evalConfig = getVRPConfigForMode('balanced');
+    const evalConfig = engine ? improvedConfig : getVRPConfigForMode('balanced');
     const baselineMetrics = calculateSolutionMetrics(baselineRoutes, orders, matrix, effectiveLimits, evalConfig);
 
     // --- 2. IMPROVED RUN: New Hybrid VRP Optimizer ---
     const t1 = performance.now();
-    const improvedMode = count >= 200 ? 'fast' : (count > 50 ? 'balanced' : 'quality');
-    const improvedConfig = getVRPConfigForMode(improvedMode);
-    const improvedRoutes = await optimizeMultiStartVRP(
-      orderIndices,
-      orders,
-      matrix,
-      effectiveLimits,
-      improvedConfig
-    );
+    const improvedRoutes = engine
+      ? await optimizeAdvanced(engine, orderIndices, orders, matrix, effectiveLimits, improvedConfig)
+      : await optimizeMultiStartVRP(orderIndices, orders, matrix, effectiveLimits, improvedConfig);
     const improvedTime = Math.max(1, Math.round(performance.now() - t1));
     const improvedMetrics = calculateSolutionMetrics(improvedRoutes, orders, matrix, effectiveLimits, improvedConfig);
 

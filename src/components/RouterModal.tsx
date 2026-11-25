@@ -355,11 +355,11 @@ export const RouterModal: React.FC<RouterModalProps> = ({
                       disabled={isRouting}
                     />
 
-                    {selectedAlgorithm === 'smart_logistics' && (
+                    {(selectedAlgorithm === 'smart_logistics' || selectedAlgorithm === 'sisr' || selectedAlgorithm === 'hgs') && (
                       <div className="p-3 rounded-xl border border-primary/20 bg-primary/5 space-y-2.5 animate-in fade-in duration-150">
                         <div className="flex items-center justify-between">
                           <span className="text-[11px] font-bold text-foreground flex items-center gap-1.5">
-                            <span>🧠 Режим Hybrid VRP:</span>
+                            <span>{selectedAlgorithm === 'sisr' ? '✂️ Режим SISR:' : selectedAlgorithm === 'hgs' ? '🧬 Режим HGS:' : '🧠 Режим Hybrid VRP:'}</span>
                           </span>
                           <button
                             type="button"
@@ -373,11 +373,16 @@ export const RouterModal: React.FC<RouterModalProps> = ({
 
                         {/* Fast / Balanced / Quality segmented selector */}
                         <div className="grid grid-cols-3 gap-1.5 p-1 bg-background/80 rounded-lg border">
-                          {[
+                          {(selectedAlgorithm === 'smart_logistics' ? [
                             { id: 'fast' as const, label: '⚡ Быстрый', desc: '1–2 старта, 2-Opt' },
                             { id: 'balanced' as const, label: '⚖️ Баланс', desc: '6 стартов, Or-Opt, 2-Opt*' },
                             { id: 'quality' as const, label: '🎯 Качество', desc: '14 стартов, ILS, 3-Opt' },
-                          ].map((mode, mIdx) => (
+                          ] : [
+                            // the new routers search for the whole time budget of the mode
+                            { id: 'fast' as const, label: '⚡ Быстрый', desc: '≈ 2–6 с' },
+                            { id: 'balanced' as const, label: '⚖️ Баланс', desc: '≈ 4–15 с' },
+                            { id: 'quality' as const, label: '🎯 Качество', desc: '≈ 10–40 с' },
+                          ]).map((mode, mIdx) => (
                             <button
                               key={`opt-mode-${mode.id}-${mIdx}`}
                               type="button"
@@ -679,6 +684,7 @@ export const RouterModal: React.FC<RouterModalProps> = ({
       <BenchmarkModal
         isOpen={isBenchmarkOpen}
         onClose={() => setIsBenchmarkOpen(false)}
+        engine={selectedAlgorithm === 'sisr' || selectedAlgorithm === 'hgs' ? selectedAlgorithm : undefined}
       />
     </>
   );

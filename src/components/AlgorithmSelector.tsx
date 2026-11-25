@@ -71,6 +71,8 @@ export const AlgorithmSelector: React.FC<AlgorithmSelectorProps> = ({
           <optgroup label={`🤖 Искусственный интеллект & 🧠 Эвристики`}>
             <option value="ai_mode">🤖 Режим ИИ (Gemini Neural Router)</option>
             <option value="smart_logistics">🧠 Smart Logistics Optimizer</option>
+            <option value="sisr">✂️ SISR — разрезание цепочек (новый)</option>
+            <option value="hgs">🧬 HGS — гибридный генетический поиск (новый)</option>
           </optgroup>
           <optgroup label={`⚡ ${t('algoCatBasic')}`}>
             <option value="savings">Clarke-Wright (Savings)</option>
