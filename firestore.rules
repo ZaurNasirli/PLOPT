@@ -4,6 +4,11 @@ rules_version = '2';
 // Everything else is denied.
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Shared workspace: the id is a long random secret (the site's VITE_SHARED_WORKSPACE); the app signs in
+    // anonymously. Listing workspaces is impossible (no rule on the parent), so the id acts as the key.
+    match /workspaces/{workspaceId}/{document=**} {
+      allow read, write: if request.auth != null && workspaceId.size() >= 20;
+    }
     match /users/{uid}/{document=**} {
       allow read, write: if request.auth != null && request.auth.uid == uid;
     }

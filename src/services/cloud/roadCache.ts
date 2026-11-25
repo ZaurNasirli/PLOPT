@@ -11,7 +11,7 @@
 //
 // Only barrier-free road values are stored; barriers are applied on top of the matrix.
 
-import { isFirebaseConfigured, loadFirebase } from './firebaseClient';
+import { CLOUD_ROOT, isFirebaseConfigured, loadFirebase } from './firebaseClient';
 
 export interface RoadCell {
   km: number;
@@ -200,7 +200,7 @@ class RoadCache {
         try {
           const { db, fsMod } = await loadFirebase();
           const { collection, query, where, getDocs, documentId } = fsMod;
-          const col = collection(db, 'users', this.uid, CLOUD_COLLECTION);
+          const col = collection(db, CLOUD_ROOT, this.uid, CLOUD_COLLECTION);
           for (let i = 0; i < needCloud.length; i += 30) {
             const chunk = needCloud.slice(i, i + 30);
             const snap = await getDocs(query(col, where(documentId(), 'in', chunk)));
@@ -301,7 +301,7 @@ class RoadCache {
       try {
         const { db, fsMod } = await loadFirebase();
         const { collection, doc, writeBatch, serverTimestamp } = fsMod;
-        const col = collection(db, 'users', this.uid, CLOUD_COLLECTION);
+        const col = collection(db, CLOUD_ROOT, this.uid, CLOUD_COLLECTION);
         // keep each batch well under Firestore's 10 MiB request limit
         let batch = writeBatch(db);
         let size = 0;

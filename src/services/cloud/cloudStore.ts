@@ -1,4 +1,4 @@
-import { loadFirebase } from './firebaseClient';
+import { CLOUD_ROOT, loadFirebase } from './firebaseClient';
 
 /**
  * Cloud storage layout (Firestore):
@@ -91,7 +91,7 @@ const docId = (key: string, part: number) => `${key}__${part}`;
 export async function createFirestoreStore(uid: string): Promise<CloudStore> {
   const { db, fsMod } = await loadFirebase();
   const { collection, doc, getDocs, writeBatch, serverTimestamp } = fsMod;
-  const dataCollection = collection(db, 'users', uid, 'data');
+  const dataCollection = collection(db, CLOUD_ROOT, uid, 'data');
 
   return {
     async readAll() {

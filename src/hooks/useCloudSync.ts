@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { isFirebaseConfigured, loadFirebase } from '../services/cloud/firebaseClient';
+import { isFirebaseConfigured, loadFirebase, SHARED_WORKSPACE } from '../services/cloud/firebaseClient';
 import { CloudStore, createFirestoreStore } from '../services/cloud/cloudStore';
 import { roadCache } from '../services/cloud/roadCache';
 
@@ -188,10 +188,23 @@ export function useCloudSync(
           storeRef.current = null;
           setReady(false);
           // the road distance cache follows the signed-in account (users/{uid}/roads)
-          roadCache.setUser(fbUser ? fbUser.uid : null);
+          roadCache.setUser(fbUser ? (SHARED_WORKSPACE ?? fbUser.uid) : null);
           if (!fbUser) {
+            if (SHARED_WORKSPACE) {
+              // shared mode: sign in anonymously, nobody has to log in
+              setUser(null);
+              setStatus('connecting');
+              authMod.signInAnonymously(auth).catch(e => { setStatus('error'); setError(toCloudError(e)); });
+              return;
+            }
             setUser(null);
             setStatus('signed-out');
+            return;
+          }
+          if (SHARED_WORKSPACE) {
+            setUser({ uid: SHARED_WORKSPACE, name: null, email: null, photoURL: null });
+            roadCache.setUser(SHARED_WORKSPACE);
+            void loadWorkspace(SHARED_WORKSPACE, session);
             return;
           }
           setUser({

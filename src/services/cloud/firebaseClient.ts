@@ -20,6 +20,15 @@ const firebaseConfig = {
   appId: env.VITE_FIREBASE_APP_ID,
 };
 
+/**
+ * Shared mode: one secret workspace id for everybody who opens the site (VITE_SHARED_WORKSPACE).
+ * The app signs in anonymously by itself, so nobody has to log in on any device: the link is the key.
+ * Without it the data is private to each Google account (users/{uid}).
+ */
+export const SHARED_WORKSPACE: string | null = (env.VITE_SHARED_WORKSPACE || '').trim() || null;
+/** Firestore root collection of the workspace */
+export const CLOUD_ROOT = SHARED_WORKSPACE ? 'workspaces' : 'users';
+
 export const isFirebaseConfigured = Boolean(
   firebaseConfig.apiKey && firebaseConfig.authDomain && firebaseConfig.projectId && firebaseConfig.appId
 );
