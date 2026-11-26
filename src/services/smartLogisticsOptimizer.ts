@@ -19,6 +19,7 @@ import {
   calculateSolutionMetrics
 } from './optimizer';
 import { runOptimizer, OptimizerEngine } from './optimizer/workerClient';
+import { contractTransfers } from './transfers';
 
 const ENGINE_LABEL: Record<OptimizerEngine, { title: string; prefix: string }> = {
   smart: { title: 'Hybrid VRP Optimizer', prefix: 'SMART' },
@@ -170,7 +171,6 @@ export const runSmartLogistics = async (
 
     // Build real road distance and duration matrix lookup
     const matrix = await buildRoadMatrixLookup(partitionOrders, WAREHOUSE_LOCATION);
-    const orderIndices = partitionOrders.map((_, idx) => idx + 1);
 
     if (matrix.barrierInfo) {
       const b = matrix.barrierInfo;
@@ -191,11 +191,18 @@ export const runSmartLogistics = async (
     });
     await new Promise(r => setTimeout(r, 10));
 
+    // Store-to-store transfers: every pickup → drop pair becomes one stop for the search (exact km/min),
+    // so it always rides in one route with the pickup right before the drop
+    const folded = contractTransfers(partitionOrders, matrix, limits.serviceTimeMinutes ?? config.defaultServiceTimeMinutes ?? 10);
+    if (folded.pairs > 0) {
+      onProgress({ percent: baseProgress + 10, message: `🔁 Перевозки между магазинами: ${folded.pairs}`, log: `Перевозки магазин → магазин: ${folded.pairs} (забор и доставка едут в одном рейсе, забор раньше доставки)` });
+    }
+
     // Multi-Start Optimization with ILS and Local Search
-    const solutionIndices = await runOptimizer(
-      orderIndices,
-      partitionOrders,
-      matrix,
+    const solutionIndices = folded.expand(await runOptimizer(
+      folded.orders.map((_, idx) => idx + 1),
+      folded.orders,
+      folded.matrix,
       limits,
       config,
       (pct, msg) => {
@@ -206,7 +213,7 @@ export const runSmartLogistics = async (
         });
       },
       engine
-    );
+    ));
 
     // Compute metrics and build final Route entities
     solutionIndices.forEach((routeIndices) => {

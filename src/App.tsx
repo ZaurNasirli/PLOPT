@@ -8,7 +8,8 @@ import {
   Sun, Moon, Filter, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, X, MapPin, Package, Users, 
   Layers, Navigation, Info, Play, FileSpreadsheet, MousePointer2, BarChart2, Save, Truck, TrendingUp, AlertTriangle, Maximize2, Clock, Check, Wand2, ArrowRight,
   Settings, HelpCircle, LayoutDashboard, Calendar, CheckSquare, Square, Sliders, History, Activity, Sparkles, RefreshCw, RotateCcw,
-  ShieldCheck, CheckCircle2, AlertOctagon, Tag, Store as StoreIcon, Building2, Smartphone, Construction
+  ShieldCheck, CheckCircle2, AlertOctagon, Tag, Store as StoreIcon, Building2, Smartphone, Construction,
+  ArrowLeftRight, BookOpen,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { motion, AnimatePresence } from 'motion/react';
@@ -37,6 +38,10 @@ import {
   calculateDistance, RoutingLimits, ProgressUpdate, getRouteGeometry, getRouteNavDetails,
   optimizeRoute2Opt, optimizeRouteNearestNeighbor, optimizeRouteGreedy, getRouteTotalDistance, getDistanceMatrix
 } from './services/routingService';
+import { expandImportedTransfers, isPickup, normalizeTransferRoutes, withPartners, withoutOrphanPickups } from './services/transfers';
+
+/** every algorithm id handled in handleRunRouting (anything else falls back to SMART) */
+const KNOWN_ALGOS = new Set(['ai_mode', 'smart_logistics', 'sisr', 'hgs', 'savings', 'sweep', 'cluster', 'genetic', 'tabu', 'nn', 'fi', 'sa', 'grasp', 'ni', 'rg', 'ss', 'ls', 'vns', 'ils', 'aco', 'pso', 'bco', 'lns', 'tabu_search', 'genetic_algo', 'cw_savings']);
 import { exportRoutesToPdf } from './services/pdfExportService';
 import { RouteHistoryPanel } from './components/RouteHistoryPanel';
 import { VersionCompareModal } from './components/VersionCompareModal';
@@ -58,6 +63,8 @@ import { HelpModal } from './components/help/HelpModal';
 import { StoreCard } from './components/orders/StoreCard';
 import { DropdownFilter, FilterItem, StatBlock, DataValue } from './components/orders/OrderFilterComponents';
 import { ExcelMappingModal, REQUIRED_FIELDS } from './components/excel/ExcelMappingModal';
+import { AddTransferModal } from './components/orders/AddTransferModal';
+import { ModuleGuideModal, GuideModule } from './components/help/ModuleGuideModal';
 import { MapView } from './components/map/MapView';
 import { StreetHighlightPanel } from './components/streets/StreetHighlightPanel';
 import { LanguageSelector } from './components/common/LanguageSelector';
@@ -1475,6 +1482,8 @@ export default function App() {
     const lockedOrderIds = new Set(routes.filter(r => lockedRouteIds.has(r.id)).flatMap(r => r.orderIds));
     const lockedSkipped = availableOrders.filter(o => lockedOrderIds.has(o.id)).length;
     availableOrders = availableOrders.filter(o => !lockedOrderIds.has(o.id));
+    // store-to-store transfers: always route the pickup and the drop together
+    availableOrders = withoutOrphanPickups(withPartners(availableOrders, orders).filter(o => !lockedOrderIds.has(o.id)));
 
     if (availableOrders.length === 0) {
       setSaveNotification(lockedSkipped > 0
@@ -1501,6 +1510,12 @@ export default function App() {
       };
 
       const start = Date.now();
+      // SMART, SISR and HGS fold every pickup into its drop themselves; the other routers get the drops only,
+      // and the pickups are put into the same routes right after (normalizeTransferRoutes below)
+      const allRouted = availableOrders;
+      const matrixRouter = algo === 'smart_logistics' || algo === 'sisr' || algo === 'hgs' || !KNOWN_ALGOS.has(algo);
+      {
+      const availableOrders = matrixRouter ? allRouted : allRouted.filter(o => !isPickup(o));
       switch (algo) {
         case 'ai_mode': {
           const { runAIRouting } = await import('./services/aiLogisticsOptimizer');
@@ -1574,6 +1589,11 @@ export default function App() {
           break;
         }
       }
+
+      }
+      // every router: pickup and drop of a transfer in one route, the pickup first
+      const transferFix = normalizeTransferRoutes(resultRoutes, allRouted, WAREHOUSE_LOCATION, { polish: !matrixRouter });
+      resultRoutes = transferFix.routes;
 
       if (resultRoutes.length === 0) {
         setSaveNotification('Не удалось сформировать маршруты. Проверьте лимиты веса/объема транспорта.');
@@ -1738,6 +1758,23 @@ export default function App() {
       }).catch(() => {});
     }
   };
+
+  // Transfer rules after any manual change (drag between routes, reorder, unassign, delete):
+  // the pickup rides in the drop's route before it; a pickup without a drop leaves the route and the list
+  useEffect(() => {
+    const cleanOrders = withoutOrphanPickups(orders);
+    const fix = normalizeTransferRoutes(routes, cleanOrders, WAREHOUSE_LOCATION);
+    if (!fix.changed && cleanOrders === orders) return;
+    // functional updates: never overwrite a newer state (an import may have replaced everything meanwhile)
+    if (fix.changed) {
+      setRoutes(prev => (prev === routes ? fix.routes : prev));
+      const before = new Map(routes.map(r => [r.id, r.orderIds.join('|')]));
+      fix.routes.filter(r => before.get(r.id) !== r.orderIds.join('|')).forEach(r => recalculateRouteRoundTrip(r.id, r.orderIds));
+      setSaveNotification(t('transferAutoFixed'));
+    }
+    if (fix.orders !== orders) setOrders(prev => (prev === orders ? fix.orders : prev));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routes, orders]);
 
   const handleUpdateRouteOrders = (routeId: string, newOrderIds: string[]) => {
     const orderMap = new Map(orders.map(o => [o.id, o]));
@@ -1964,8 +2001,9 @@ export default function App() {
         routeId: hasRoute ? routeStr : undefined,
         allowedTruckType: mapping['allowedTruckType'] && row[mapping['allowedTruckType']] ? String(row[mapping['allowedTruckType']]).trim() : undefined,
         warehouseType: warehouseType || undefined,
-        __coordsFromFile: coordsFromFile
-      } as Order & { __coordsFromFile?: boolean };
+        __coordsFromFile: coordsFromFile,
+        __from: mapping['fromStore'] && row[mapping['fromStore']] !== undefined && row[mapping['fromStore']] !== null ? String(row[mapping['fromStore']]).trim() : ''
+      } as Order & { __coordsFromFile?: boolean; __from?: string };
     });
 
     // Store directory: restore missing/invalid coordinates, then remember every store of this import
@@ -2013,6 +2051,10 @@ export default function App() {
       if (rec.region) o.region = rec.region;
       if (Number.isFinite(rec.lat) && Number.isFinite(rec.lng)) { o.lat = rec.lat; o.lng = rec.lng; }
     }
+
+    // Store-to-store transfers: a filled «Откуда» turns the row into pickup (sender) → drop (this store)
+    const transferResult = expandImportedTransfers(newOrders as (Order & { __from?: string })[], lookupStore);
+    newOrders.splice(0, newOrders.length, ...transferResult.orders);
 
     // Reconstruct ready-made routes from orders with route numbers
     const importedRouteGroups = new Map<string, Order[]>();
@@ -2083,6 +2125,8 @@ export default function App() {
     const directoryNote = [
       newStores > 0 ? `в справочник добавлено магазинов: ${newStores}` : '',
       resolution.size > 0 ? `обновлено из файла: ${new Set([...resolution.keys()].map(k => k.split('|')[0])).size}` : '',
+      transferResult.transfers > 0 ? `перевозок между магазинами: ${transferResult.transfers}` : '',
+      transferResult.unknown.length > 0 ? `не найден магазин-отправитель (заказ оставлен доставкой со склада): ${transferResult.unknown.slice(0, 5).join(', ')}${transferResult.unknown.length > 5 ? '…' : ''}` : '',
       restoredCoords > 0 ? `координаты из справочника: ${restoredCoords}` : '',
       withoutCoords > 0 ? `без координат (поставлены на склад): ${withoutCoords}` : ''
     ].filter(Boolean).join(', ');
@@ -2120,6 +2164,14 @@ export default function App() {
     }
   };
 
+  const [showAddTransfer, setShowAddTransfer] = useState(false);
+  const [guideModule, setGuideModule] = useState<GuideModule | null>(null);
+  const handleAddTransfer = (pair: Order[]) => {
+    setOrders(prev => [...prev, ...pair]);
+    const drop = pair.find(o => o.stopType === 'drop');
+    setSaveNotification(t('transferAdded', { from: drop?.transferStoreName || '', to: drop?.customerName || '' }));
+  };
+
   const handleExportTemplate = () => {
     const template = [
       {
@@ -2138,7 +2190,28 @@ export default function App() {
         'дистанция (км)': 12.5,
         'широта': 40.5346,
         'долгота': 49.9524,
-        'номер маршрута': 'Маршрут 1'
+        'номер маршрута': 'Маршрут 1',
+        'откуда': ''
+      },
+      {
+        'номер заказа': '124',
+        'название магазина': 'Магазин 2',
+        'код': 'C002',
+        'день': '1,2,3',
+        'регион': 'Нариманов',
+        'время': 'Утро',
+        'дата отправки': '07.07.2026',
+        'тип склада': 'Основной склад',
+        'обьем заказа': 0.8,
+        'вес': 60,
+        'sətir': 2,
+        'тип грузовика': '',
+        'дистанция (км)': '',
+        'широта': 40.4093,
+        'долгота': 49.8671,
+        'номер маршрута': '',
+        // filled = store-to-store transfer: the goods are taken in C001 and brought to C002
+        'откуда': 'C001'
       }
     ];
     const ws = XLSX.utils.json_to_sheet(template);
@@ -2198,6 +2271,9 @@ export default function App() {
           'Номер заказа': o.orderNumber,
           'Магазин': o.customerName,
           'Код': o.code,
+          'Тип остановки': o.stopType === 'pickup' ? 'Забор (перевозка)' : o.stopType === 'drop' ? 'Доставка (перевозка)' : 'Доставка со склада',
+          'Перевозка: откуда / куда': o.stopType === 'pickup' ? `→ ${o.transferStoreName || o.transferStoreCode || ''}` : o.stopType === 'drop' ? `← ${o.transferStoreName || o.transferStoreCode || ''}` : '',
+          'Груз перевозки (м³)': o.stopType === 'pickup' ? (o.transferVolume ?? 0) : '',
           'Район / Регион': o.region,
           'Вес (кг)': o.weight,
           'Объем (м³)': o.volume,
@@ -2241,6 +2317,9 @@ export default function App() {
         'Номер заказа': o.orderNumber,
         'Магазин': o.customerName,
         'Код': o.code,
+        'Тип остановки': o.stopType === 'pickup' ? 'Забор (перевозка)' : o.stopType === 'drop' ? 'Доставка (перевозка)' : 'Доставка со склада',
+        'Перевозка: откуда / куда': o.stopType === 'pickup' ? `→ ${o.transferStoreName || o.transferStoreCode || ''}` : o.stopType === 'drop' ? `← ${o.transferStoreName || o.transferStoreCode || ''}` : '',
+        'Груз перевозки (м³)': o.stopType === 'pickup' ? (o.transferVolume ?? 0) : '',
         'Район / Регион': o.region,
         'Вес (кг)': o.weight,
         'Объем (м³)': o.volume,
@@ -3083,10 +3162,11 @@ export default function App() {
         routingProgress={routingProgress}
         setIsRouting={setIsRouting}
         onOpenRouterModal={() => setIsRouterModalOpen(true)}
-        onOpenHelpModal={() => setIsHelpOpen(true)}
+        onOpenHelpModal={() => setGuideModule('yol')}
         onOpenAuditModal={() => setIsValidationModalOpen(true)}
         onImportExcel={handleImportExcel}
         onExportTemplate={handleExportTemplate}
+        onAddTransfer={() => setShowAddTransfer(true)}
         onUndo={handleUndo}
         canUndo={true}
         isDarkMode={isDarkMode}
@@ -3173,6 +3253,8 @@ export default function App() {
             setIsValidationModalOpen(false);
           }}
         />
+        <AddTransferModal show={showAddTransfer} onClose={() => setShowAddTransfer(false)} orders={orders} directory={storeDirectory} onAdd={handleAddTransfer} />
+      <ModuleGuideModal module={guideModule} onChangeModule={setGuideModule} onClose={() => setGuideModule(null)} />
         <ExcelMappingModal
           show={excelMapping.show}
           data={excelMapping.data}
@@ -3270,6 +3352,9 @@ export default function App() {
               <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleExportTemplate} title={t('btnExportTemplate')}>
                 <FileSpreadsheet size={15} />
               </Button>
+              <Button variant="outline" size="icon" className="h-8 w-8 shadow-xs hover:border-primary cursor-pointer" onClick={() => setShowAddTransfer(true)} title={t('transferAddTitle')} id="btn-add-transfer">
+                <ArrowLeftRight size={15} />
+              </Button>
               <Button 
                 variant="outline" 
                 size="sm" 
@@ -3329,6 +3414,17 @@ export default function App() {
               <Smartphone size={15} className="text-primary" />
             </Button>
             <LanguageSelector />
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 px-2 gap-1.5 text-xs font-semibold cursor-pointer"
+              onClick={() => setGuideModule(currentPage === 'rota' ? 'ritm' : currentPage === 'forecast' ? 'proqnoz' : currentPage === 'stores' ? 'magazalar' : 'yol')}
+              title="Təlimat (Azərbaycan dilində)"
+              id="btn-module-guide"
+            >
+              <BookOpen size={15} />
+              <span className="hidden lg:inline">Təlimat</span>
+            </Button>
             <Button 
               variant="ghost" 
               size="icon" 
@@ -4278,6 +4374,8 @@ export default function App() {
     )}
   </div>
 
+  <ModuleGuideModal module={guideModule} onChangeModule={setGuideModule} onClose={() => setGuideModule(null)} />
+
   {currentPage === 'routing' && (
     <>
       {/* Router Modal (Parameters, Trucks & Algorithms) */}
@@ -4417,6 +4515,8 @@ export default function App() {
           setIsLeftCollapsed(false);
         }}
       />
+
+      <AddTransferModal show={showAddTransfer} onClose={() => setShowAddTransfer(false)} orders={orders} directory={storeDirectory} onAdd={handleAddTransfer} />
 
       {/* Excel Mapping Modal */}
       <ExcelMappingModal

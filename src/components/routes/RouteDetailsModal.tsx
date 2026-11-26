@@ -30,6 +30,7 @@ import { getRouteDistanceInfo, formatDurationMinutes, calculateRouteLegs } from 
 import { validateSingleRoute } from '../../services/routeValidator';
 import { getCorridorSectorName } from '../../services/optimizer';
 import { useTranslation } from '../../i18n/I18nContext';
+import { TransferBadge } from '../orders/TransferBadge';
 
 interface RouteDetailsModalProps {
   route: Route;
@@ -696,6 +697,11 @@ export const RouteDetailsModal: React.FC<RouteDetailsModalProps> = ({
                         <div className="text-[11px] text-muted-foreground">
                           {t('navOrders')}: {store.orders.length} ({store.orders.map(o => o.orderNumber).join(', ')})
                         </div>
+                        {store.orders.some(o => o.stopType) && (
+                          <div className="flex flex-wrap gap-1">
+                            {store.orders.filter(o => o.stopType).map(o => <TransferBadge key={`tb-${o.id}`} order={o} />)}
+                          </div>
+                        )}
                       </div>
 
                       {/* Manual Reordering & Moving Controls */}
@@ -793,6 +799,7 @@ export const RouteDetailsModal: React.FC<RouteDetailsModalProps> = ({
                       <div className="flex items-center gap-2">
                         <span className="font-bold">#{idx + 1} {o.orderNumber}</span>
                         <span className="font-semibold text-muted-foreground">{o.customerName}</span>
+                        <TransferBadge order={o} />
                         {o.shippingDate && (
                           <span className="text-[10px] text-primary bg-primary/10 px-1.5 py-0.2 rounded font-bold">
                             📅 {o.shippingDate}
@@ -804,7 +811,7 @@ export const RouteDetailsModal: React.FC<RouteDetailsModalProps> = ({
                       </div>
                     </div>
                     <div className="text-right">
-                      <div className="font-bold">{Math.ceil(o.volume)} {t('unitM3')} • {Math.ceil(o.weight)} {t('unitKg')}</div>
+                      <div className="font-bold">{o.stopType === 'pickup' ? `+${Math.ceil(o.transferVolume || 0)} ${t('unitM3')} • +${Math.ceil(o.transferWeight || 0)} ${t('unitKg')}` : `${Math.ceil(o.volume)} ${t('unitM3')} • ${Math.ceil(o.weight)} ${t('unitKg')}`}</div>
                       <div className="text-[10px] text-muted-foreground">Sətir: {o.satir}</div>
                     </div>
                   </div>

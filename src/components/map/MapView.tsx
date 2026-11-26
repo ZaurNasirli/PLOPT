@@ -791,6 +791,8 @@ export function MapView({
               ${extraStyle}
             ">
               ${stopSequenceNumber !== null ? `<span style="background: rgba(0,0,0,0.32); border-radius: 6px; padding: 1px 3.5px; font-size: 8.5px; line-height: 1; flex-shrink: 0;">№${stopSequenceNumber}</span>` : ''}
+              ${storeOrders.some(o => o.stopType === 'pickup') ? `<span title="Забор товара для перевозки в другой магазин" style="background: #6d28d9; border-radius: 6px; padding: 1px 3.5px; font-size: 9px; line-height: 1; flex-shrink: 0;">↑${roundUp(storeOrders.reduce((s, o) => s + (o.stopType === 'pickup' ? (o.transferVolume || 0) : 0), 0))}</span>` : ''}
+              ${storeOrders.some(o => o.stopType === 'drop') ? `<span title="Перевозка из другого магазина" style="background: #0369a1; border-radius: 6px; padding: 1px 3.5px; font-size: 9px; line-height: 1; flex-shrink: 0;">↓</span>` : ''}
               <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${markerLabel}</span>
             </div>`,
             iconSize: [0, 0],

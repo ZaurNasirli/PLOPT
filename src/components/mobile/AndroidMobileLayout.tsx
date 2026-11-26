@@ -34,7 +34,7 @@ import {
   Monitor,
   Eye,
   EyeOff
-} from 'lucide-react';
+, ArrowLeftRight } from 'lucide-react';
 import { Order, Route, Store, TruckType, Zone, StreetHighlight, StoreMarkerLabelMode, RouteVersion, RoadBarrier } from '../../types';
 import { MapView } from '../map/MapView';
 import { MobileBottomSheet } from './MobileBottomSheet';
@@ -73,6 +73,7 @@ interface AndroidMobileLayoutProps {
   onOpenAuditModal: () => void;
   onImportExcel: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onExportTemplate: () => void;
+  onAddTransfer?: () => void;
   onUndo: () => void;
   canUndo?: boolean;
   isDarkMode: boolean;
@@ -134,6 +135,7 @@ export const AndroidMobileLayout: React.FC<AndroidMobileLayoutProps> = ({
   onOpenAuditModal,
   onImportExcel,
   onExportTemplate,
+  onAddTransfer,
   onUndo,
   canUndo = true,
   isDarkMode,
@@ -1042,6 +1044,21 @@ export const AndroidMobileLayout: React.FC<AndroidMobileLayoutProps> = ({
               <div className="font-bold text-xs text-foreground">{t('btnExportTemplate')}</div>
               <div className="text-[10px] text-muted-foreground mt-0.5">Скачать образец таблицы</div>
             </button>
+
+            {/* Store-to-store transfer */}
+            {onAddTransfer && (
+              <button
+                type="button"
+                onClick={onAddTransfer}
+                className="p-3.5 rounded-2xl bg-card border border-border hover:border-primary/40 text-left transition-all cursor-pointer shadow-xs active:scale-98"
+              >
+                <div className="w-8 h-8 rounded-xl bg-violet-500/10 text-violet-500 flex items-center justify-center mb-2">
+                  <ArrowLeftRight size={17} />
+                </div>
+                <div className="font-bold text-xs text-foreground">{t('transferAddButton')}</div>
+                <div className="text-[10px] text-muted-foreground mt-0.5">{t('transferFrom')} → {t('transferTo')}</div>
+              </button>
+            )}
 
             {/* Scenarios & History */}
             <button

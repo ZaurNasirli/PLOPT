@@ -4,6 +4,7 @@ import { CheckSquare, Square } from 'lucide-react';
 import { Store } from '../../types';
 import { cn } from '../../lib/utils';
 import { useTranslation } from '../../i18n/I18nContext';
+import { TransferBadge } from './TransferBadge';
 
 interface StoreCardProps {
   store: Store;
@@ -122,7 +123,10 @@ export const StoreCard: React.FC<StoreCardProps> = ({
                         <Square size={10} className="text-muted-foreground shrink-0" />
                       )}
                       <span className="font-mono text-foreground font-semibold truncate">{o.orderNumber || o.code}</span>
-                      <span className="text-[8px] opacity-80">({Math.ceil(o.weight)}{t('unitKg')})</span>
+                      {o.stopType === 'pickup'
+                        ? <span className="text-[8px] opacity-80">({Math.ceil(o.transferVolume || 0)}{t('unitM3')})</span>
+                        : <span className="text-[8px] opacity-80">({Math.ceil(o.weight)}{t('unitKg')})</span>}
+                      <TransferBadge order={o} compact />
                       {o.warehouseType && (
                         <span className="text-[7.5px] px-1 py-0.2 rounded bg-muted/80 text-muted-foreground font-medium truncate max-w-[65px]" title={`${t('filterWarehouse')}: ${o.warehouseType}`}>
                           {o.warehouseType}

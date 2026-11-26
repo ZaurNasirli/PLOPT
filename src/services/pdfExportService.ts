@@ -133,7 +133,7 @@ export async function exportRoutesToPdf({ routes, orders, truckTypes = [], title
       const tableData = routeOrders.map((order, idx) => [
         (idx + 1).toString(),
         order.orderNumber || '-',
-        order.customerName || 'Неизвестно',
+        (order.customerName || 'Неизвестно') + (order.stopType === 'pickup' ? ` [забор → ${order.transferStoreCode || order.transferStoreName || ''}, ${order.transferVolume ?? 0} м³]` : order.stopType === 'drop' ? ` [перевозка ← ${order.transferStoreCode || order.transferStoreName || ''}]` : ''),
         order.region || '-',
         (Math.round(order.weight * 10) / 10).toFixed(1),
         (Math.round(order.volume * 10) / 10).toFixed(1),
@@ -339,7 +339,7 @@ export function openPrintableRoutesWindow({ routes, orders, truckTypes = [], tit
                   <tr>
                     <td class="text-center">${oIdx + 1}</td>
                     <td><b>${order.orderNumber || '-'}</b></td>
-                    <td>${order.customerName || 'Неизвестно'}</td>
+                    <td>${order.customerName || 'Неизвестно'}${order.stopType === 'pickup' ? ` <b style="color:#6d28d9">↑ забор → ${order.transferStoreName || order.transferStoreCode || ''} (${order.transferVolume ?? 0} м³)</b>` : order.stopType === 'drop' ? ` <b style="color:#0369a1">↓ перевозка ← ${order.transferStoreName || order.transferStoreCode || ''}</b>` : ''}</td>
                     <td>${order.region || '-'}</td>
                     <td class="text-right">${(Math.round(order.weight * 10) / 10).toFixed(1)}</td>
                     <td class="text-right">${(Math.round(order.volume * 10) / 10).toFixed(1)}</td>

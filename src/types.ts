@@ -30,6 +30,20 @@ export interface Order {
   warehouseType?: string; // Тип склада
   isLocked?: boolean; // Manual lock to current route
   lockedRouteId?: string;
+  /**
+   * Store-to-store transfer. A transfer is two orders with the same transferId:
+   * 'pickup' — the truck takes the goods at this store (its own weight/volume are 0, the moved load is in transferWeight/transferVolume);
+   * 'drop' — the truck brings them to this store (a normal delivery with weight/volume).
+   * Both ride in one route, the pickup before the drop; every route starts and ends at the warehouse.
+   */
+  stopType?: 'pickup' | 'drop';
+  transferId?: string;
+  /** the other store of the transfer: where the goods go (pickup) or where they come from (drop) */
+  transferStoreCode?: string;
+  transferStoreName?: string;
+  /** moved load, kept on the pickup stop for display */
+  transferWeight?: number;
+  transferVolume?: number;
 }
 
 export interface Store {

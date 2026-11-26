@@ -68,8 +68,10 @@ const checkLimits = (routeOrders: Order[], limits: RoutingLimits) => {
   const weight = routeOrders.reduce((sum, o) => sum + o.weight, 0);
   const volume = routeOrders.reduce((sum, o) => sum + o.volume, 0);
   const satir = routeOrders.reduce((sum, o) => sum + o.satir, 0);
-  const customers = new Set(routeOrders.map(o => o.customerName)).size;
-  const regions = new Set(routeOrders.map(o => o.region)).size;
+  // pickup stops of store-to-store transfers do not count against the store / region limits (they carry no delivery)
+  const delivering = routeOrders.filter(o => o.stopType !== 'pickup');
+  const customers = new Set(delivering.map(o => o.customerName)).size;
+  const regions = new Set(delivering.map(o => o.region)).size;
 
   const tolerance = 1.03; // 3% tolerance
 

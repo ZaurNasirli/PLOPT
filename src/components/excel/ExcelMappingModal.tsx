@@ -27,6 +27,7 @@ export const REQUIRED_FIELDS: RequiredField[] = [
   { key: 'lng', label: 'Долгота', synonyms: ['долгота', 'lng', 'longitude'] },
   { key: 'allowedTruckType', label: 'Тип грузовика', synonyms: ['тип грузовика', 'truck type', 'машина', 'тип авто', 'тип грузовика (заказ)'], optional: true },
   { key: 'warehouseType', label: 'Тип склада', synonyms: ['тип склада', 'warehouse type', 'склад', 'anbar', 'anbar növü', 'тип_склада', 'warehouse_type', 'depot', 'тип складов', 'anbar novu'], optional: true },
+  { key: 'fromStore', label: 'Откуда (магазин-отправитель)', synonyms: ['откуда', 'откуда (магазин-отправитель)', 'откуда (код магазина)', 'из магазина', 'магазин-отправитель', 'отправитель', 'код отправителя', 'from', 'from store', 'haradan', 'göndərən', 'göndərən mağaza', 'nereden', 'gönderen'], optional: true },
   { key: 'routeId', label: 'Номер маршрута', synonyms: ['номер маршрута', 'маршрут', 'марщрут', 'route', 'routeid', 'номер рейса', 'рейс', 'назначенный маршрут'], optional: true },
 ];
 
