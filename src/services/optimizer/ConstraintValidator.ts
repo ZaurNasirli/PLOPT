@@ -1,6 +1,7 @@
 import { Order, TruckType } from '../../types';
 import type { RoutingLimits } from '../routingService';
 import { RoadMatrixLookup } from './RoadMatrix';
+import { peakLoad, peakLoadUnordered, precedenceOk } from '../loadProfile';
 
 export interface TimeWindowInterval {
   startMinutes: number; // minutes from 00:00 (e.g. 08:00 = 480)
@@ -142,11 +143,15 @@ function findAllowedTruck(allowedTruckType: string | undefined, truckTypes: Truc
  * Note: A single-order route (routeOrders.length <= 1) is always permitted so an individual
  * oversized order gets its own dedicated vehicle instead of failing the entire routing run.
  */
-export function checkHardLimits(routeOrders: Order[], limits: RoutingLimits): boolean {
+export function checkHardLimits(routeOrders: Order[], limits: RoutingLimits, opts: { unordered?: boolean } = {}): boolean {
   if (routeOrders.length <= 1) return true;
 
-  const weight = routeOrders.reduce((sum, o) => sum + (o.weight || 0), 0);
-  const volume = routeOrders.reduce((sum, o) => sum + (o.volume || 0), 0);
+  // highest load on the way (store-to-store transfers: picked up and dropped during the route);
+  // without transfers this is the plain sum. For a set of stops whose order is unknown: a lower bound.
+  const peak = opts.unordered ? peakLoadUnordered(routeOrders) : peakLoad(routeOrders);
+  const weight = peak.w;
+  const volume = peak.v;
+  if (!opts.unordered && !precedenceOk(routeOrders)) return false;
   const satir = routeOrders.reduce((sum, o) => sum + (o.satir || 0), 0);
   // pickup stops of store-to-store transfers do not count against the store / region limits (they carry no delivery)
   const delivering = routeOrders.filter(o => o.stopType !== 'pickup');
@@ -208,8 +213,7 @@ export function checkHardLimits(routeOrders: Order[], limits: RoutingLimits): bo
 export function findBestTruck(routeOrders: Order[], limits: RoutingLimits): string | undefined {
   if (!limits.truckTypes || limits.truckTypes.length === 0) return undefined;
 
-  const weight = routeOrders.reduce((sum, o) => sum + (o.weight || 0), 0);
-  const volume = routeOrders.reduce((sum, o) => sum + (o.volume || 0), 0);
+  const { w: weight, v: volume } = peakLoad(routeOrders);
 
   const possibleTrucks = limits.truckTypes.filter(truck => {
     if (weight > truck.maxWeight * LOAD_TOLERANCE_RATIO) return false;

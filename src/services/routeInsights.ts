@@ -1,6 +1,7 @@
 import { Order, Route } from '../types';
 import type { RoutingLimits } from './routingService';
 import { getRouteDistanceInfo, calculateRouteLegs } from './distanceHelper';
+import { peakLoad } from './loadProfile';
 
 export type RouteStatus = 'notruck' | 'blocked' | 'over' | 'low' | 'long' | 'ok';
 
@@ -64,8 +65,8 @@ export function buildRouteInsights(routes: Route[], allOrders: Order[], limits: 
       stop.weight += o.weight || 0;
     }
 
-    const volume = orders.reduce((s, o) => s + (o.volume || 0), 0);
-    const weight = orders.reduce((s, o) => s + (o.weight || 0), 0);
+    // highest load along the route (transfers are picked up on the way)
+    const { v: volume, w: weight } = peakLoad(orders);
     const truck = route.truckTypeId ? limits.truckTypes?.find(t => t.id === route.truckTypeId) : undefined;
     const maxV = truck?.maxVolume || limits.maxVolume || 0;
     const maxW = truck?.maxWeight || limits.maxWeight || 0;

@@ -8,6 +8,7 @@ import { Route, Order } from '../../types';
 import { RoutingLimits, calculateDistance } from '../../services/routingService';
 import { useTranslation } from '../../i18n/I18nContext';
 import { WeeklyOrdersTrendWidget } from './WeeklyOrdersTrendWidget';
+import { peakLoad } from '../../services/loadProfile';
 
 interface AnalyticsPanelProps {
   routes: Route[];
@@ -48,8 +49,8 @@ export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({
   const orderMap = new Map(orders.map(o => [o.id, o]));
   const routeLoad = (r: Route) => {
     const rOrders = r.orderIds.map(id => orderMap.get(id)).filter((o): o is Order => Boolean(o));
-    const weight = rOrders.reduce((s, o) => s + o.weight, 0);
-    const volume = rOrders.reduce((s, o) => s + o.volume, 0);
+    // highest load along the route (transfers are picked up on the way)
+    const { w: weight, v: volume } = peakLoad(rOrders);
     const truck = routingLimits.truckTypes?.find(tt => tt.id === r.truckTypeId);
     const maxW = truck?.maxWeight || routingLimits.maxWeight || 0;
     const maxV = truck?.maxVolume || routingLimits.maxVolume || 0;

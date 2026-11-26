@@ -5,6 +5,7 @@ import { calculateDistance } from '../geo';
 import { RoadMatrixLookup } from './RoadMatrix';
 import { SmartVRPConfig, normaliseWeights } from './types';
 import { assignFleet, hasFleetLimits } from './FleetAssignment';
+import { peakLoadUnordered } from '../loadProfile';
 import { 
   checkHardLimits, 
   getRouteCapacities, 
@@ -255,10 +256,11 @@ function getEvalCache(matrix: RoadMatrixLookup, ordersMap: Order[], limits: Rout
 
 function computeSetMetrics(sorted: number[], ordersMap: Order[], matrix: RoadMatrixLookup, limits: RoutingLimits): SetMetrics {
   const orders = sorted.map(idx => ordersMap[idx - 1]).filter(Boolean);
-  const feasible = checkHardLimits(orders, limits);
+  // a set (order unknown): transfers use the lower bound of the load; routers with transfers check
+  // the exact load along the route themselves
+  const feasible = checkHardLimits(orders, limits, { unordered: true });
   const { maxW, maxV } = getRouteCapacities(orders, limits);
-  const totalW = orders.reduce((s, o) => s + o.weight, 0);
-  const totalV = orders.reduce((s, o) => s + o.volume, 0);
+  const { w: totalW, v: totalV } = peakLoadUnordered(orders);
 
   // Angular spread (same as evaluateDirectionalCompactness)
   let spreadPenalty = 0;

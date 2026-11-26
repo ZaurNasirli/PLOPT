@@ -9,6 +9,7 @@ import { checkHardLimits } from './optimizer/ConstraintValidator';
 import { generateBenchmarkPoints } from './optimizer/Benchmark';
 import { optimizeMultiStartVRP } from './optimizer/MultiStartOptimizer';
 import { optimizeAdvanced } from './optimizer/advanced';
+import { peakLoad } from './loadProfile';
 import {
   brokenTransfers, contractTransfers, isPickup, makeTransfer, normalizeTransferRoutes, withPartners, withoutOrphanPickups,
 } from './transfers';
@@ -129,21 +130,55 @@ const ok = (plan: number[][], orders: Order[], lim: RoutingLimits) => {
   for (const r of plan) expect(checkHardLimits(r.map(i => orders[i - 1]), lim)).toBe(true);
 };
 
+/** The pipeline of runSmartLogistics for one group: SMART folds pairs then finishes them; SISR / HGS work on pairs directly */
+async function runMatrixRouter(engine: 'smart' | 'sisr' | 'hgs', orders: Order[], lim: RoutingLimits, cfg = config): Promise<number[][]> {
+  const mx = matrixOf(orders);
+  const all = orders.map((_, i) => i + 1);
+  if (engine !== 'smart') return optimizeAdvanced(engine, all, orders, mx, lim, cfg);
+  const c = contractTransfers(orders, mx, 10);
+  const plan = c.expand(await optimizeMultiStartVRP(c.orders.map((_, i) => i + 1), c.orders, c.matrix, lim, cfg));
+  return c.pairs ? optimizeAdvanced('pd', all, orders, mx, lim, cfg, undefined, undefined, plan) : plan;
+}
+
 describe('matrix routers keep the transfer rules', () => {
   const orders = withTransfers(45, 17);
   const lim = limits({ maxCustomers: 12 });
-  const run = async (engine: 'smart' | 'sisr' | 'hgs') => {
-    const mx = matrixOf(orders);
-    const c = contractTransfers(orders, mx, 10);
-    const idx = c.orders.map((_, i) => i + 1);
-    const raw = engine === 'smart'
-      ? await optimizeMultiStartVRP(idx, c.orders, c.matrix, lim, config)
-      : await optimizeAdvanced(engine, idx, c.orders, c.matrix, lim, config);
-    return c.expand(raw);
-  };
   it.each(['smart', 'sisr', 'hgs'] as const)('%s', async engine => {
-    ok(await run(engine), orders, lim);
-  }, 20000);
+    ok(await runMatrixRouter(engine, orders, lim), orders, lim);
+  }, 30000);
+});
+
+describe('exact load along the route (truck 10 m³)', () => {
+  // the warehouse sends 10 m³: store A 1 m³ + four stores 2.25 m³; A also gives 2 m³ to store B.
+  // Picking up at A first would carry 10 − 1 + 2 = 11 m³, so A cannot be the first stop; after any
+  // other delivery the 2 m³ fit. One truck is enough only with the exact load (the plain sum is 12 m³).
+  const mk = (id: string, lat: number, lng: number, volume: number): Order => ({
+    id, orderNumber: id, customerName: `Store ${id}`, code: id, weight: volume * 100, volume, region: 'R', satir: 1,
+    days: [1], timeSlot: 'День', shippingDate: '26.11.2026', lat, lng, status: 'not-in-route',
+  });
+  const A = mk('A', 40.528, 49.94, 1);
+  const others = [mk('S1', 40.47, 49.86, 2.25), mk('S2', 40.44, 49.9, 2.25), mk('S3', 40.42, 49.95, 2.25), mk('S4', 40.45, 50.0, 2.25)];
+  const [drop, pickup] = makeTransfer(mk('B', 40.43, 49.88, 2), { code: 'A', name: 'Store A', lat: A.lat, lng: A.lng, region: 'R' });
+  const orders = [A, ...others, pickup, drop];
+  const lim = limits({ truckTypes: [{ id: 't10', name: '10 м³', maxWeight: 5000, maxVolume: 10, rank: 1 }], costPerRoute: 400 });
+
+  it.each(['smart', 'sisr', 'hgs'] as const)('%s: one truck, A is not the first stop, never over 10 m³ (+3%)', async engine => {
+    const plan = await runMatrixRouter(engine, orders, lim, getVRPConfigForMode('fast', { timeBudgetMs: 900 }));
+    ok(plan, orders, lim);
+    expect(plan.length).toBe(1);
+    const seq = plan[0].map(i => orders[i - 1]);
+    expect(peakLoad(seq).v).toBeLessThanOrEqual(10 * 1.03);
+    const firstStop = seq[0];
+    expect(firstStop.customerName).not.toBe('Store A');
+    expect(seq.findIndex(o => o.id === pickup.id)).toBeLessThan(seq.findIndex(o => o.id === drop.id));
+  }, 30000);
+
+  it('the load check itself: A first is 11 m³, A after a delivery is 10 m³', () => {
+    expect(peakLoad([A, pickup, ...others, drop]).v).toBeCloseTo(11);
+    expect(peakLoad([others[0], A, pickup, others[1], drop, others[2], others[3]]).v).toBeCloseTo(10);
+    // pickup after its drop: the drop counts as loaded at the warehouse (2.25 + 2), the late pickup adds 2 after both left
+    expect(peakLoad([others[0], drop, pickup]).v).toBeCloseTo(4.25);
+  });
 });
 
 describe('every other router keeps the transfer rules after the repair', () => {

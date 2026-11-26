@@ -31,6 +31,7 @@ import { validateSingleRoute } from '../../services/routeValidator';
 import { getCorridorSectorName } from '../../services/optimizer';
 import { useTranslation } from '../../i18n/I18nContext';
 import { TransferBadge } from '../orders/TransferBadge';
+import { peakLoad } from '../../services/loadProfile';
 
 interface RouteDetailsModalProps {
   route: Route;
@@ -79,8 +80,8 @@ export const RouteDetailsModal: React.FC<RouteDetailsModalProps> = ({
   const maxW = assignedTruck?.maxWeight || limits.maxWeight || 1500;
   const maxV = assignedTruck?.maxVolume || limits.maxVolume || 12;
 
-  const totalW = orders.reduce((sum, o) => sum + o.weight, 0);
-  const totalV = orders.reduce((sum, o) => sum + o.volume, 0);
+  // load % = highest load along the route (transfers are picked up on the way)
+  const { w: totalW, v: totalV } = peakLoad(orders);
 
   const weightPercent = maxW > 0 ? Math.min(100, Math.round((totalW / maxW) * 100)) : 80;
   const volumePercent = maxV > 0 ? Math.min(100, Math.round((totalV / maxV) * 100)) : 80;

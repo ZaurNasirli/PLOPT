@@ -922,5 +922,12 @@ export const ru = {
   transferDropFrom: 'Перевозка ← {store}',
   transferPickupHint: 'Здесь машина забирает товар и везёт его в «{store}»',
   transferDropHint: 'Товар привозят не со склада, а из «{store}»',
-  transferAutoFixed: 'Перевозка: забор поставлен в тот же рейс перед доставкой'
+  transferAutoFixed: 'Перевозка: забор поставлен в тот же рейс перед доставкой',
+  algoMainTitle: 'Основные маршрутизаторы',
+  algoMainHint: 'перевозки и загрузка по рейсу — точно',
+  algoMainBadge: 'Основной',
+  algoMainSisr: 'лучший обычно',
+  algoMainHgs: 'для «Качества»',
+  algoMainSmart: 'проверенный',
+  algoAiGroup: 'Искусственный интеллект'
 };

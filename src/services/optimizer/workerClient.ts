@@ -6,7 +6,7 @@ import { optimizeMultiStartVRP } from './MultiStartOptimizer';
 import { optimizeAdvanced } from './advanced';
 
 /** Which search runs on the prepared matrix: SMART (multi-start + LNS) or one of the advanced routers */
-export type OptimizerEngine = 'smart' | 'sisr' | 'hgs';
+export type OptimizerEngine = 'smart' | 'sisr' | 'hgs' | 'pd';
 
 export interface OptimizerJob {
   orderIndices: number[];
@@ -19,6 +19,8 @@ export interface OptimizerJob {
   limits: RoutingLimits;
   config: SmartVRPConfig;
   engine: OptimizerEngine;
+  /** start plan for the 'pd' finishing search */
+  start?: number[][];
 }
 
 /**
@@ -32,11 +34,12 @@ export async function runOptimizer(
   limits: RoutingLimits,
   config: SmartVRPConfig,
   onProgress?: (percent: number, message: string) => void,
-  engine: OptimizerEngine = 'smart'
+  engine: OptimizerEngine = 'smart',
+  start?: number[][]
 ): Promise<number[][]> {
   const inThread = () => engine === 'smart'
     ? optimizeMultiStartVRP(orderIndices, orders, matrix, limits, config, onProgress)
-    : optimizeAdvanced(engine, orderIndices, orders, matrix, limits, config, onProgress);
+    : optimizeAdvanced(engine, orderIndices, orders, matrix, limits, config, onProgress, undefined, start);
   if (typeof Worker === 'undefined' || typeof window === 'undefined') return inThread();
 
   let worker: Worker;
@@ -58,7 +61,8 @@ export async function runOptimizer(
     hasFallback: matrix.hasFallback,
     limits: JSON.parse(JSON.stringify(limits)),
     config: JSON.parse(JSON.stringify(config)),
-    engine
+    engine,
+    start
   };
 
   try {

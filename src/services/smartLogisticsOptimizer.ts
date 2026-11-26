@@ -20,11 +20,13 @@ import {
 } from './optimizer';
 import { runOptimizer, OptimizerEngine } from './optimizer/workerClient';
 import { contractTransfers } from './transfers';
+import { getTimeBudgetMs } from './optimizer/types';
 
 const ENGINE_LABEL: Record<OptimizerEngine, { title: string; prefix: string }> = {
   smart: { title: 'Hybrid VRP Optimizer', prefix: 'SMART' },
   sisr: { title: 'SISR (разрезание цепочек)', prefix: 'SISR' },
   hgs: { title: 'HGS (гибридный генетический поиск)', prefix: 'HGS' },
+  pd: { title: 'Доводка перевозок', prefix: 'PD' },
 };
 
 // Re-export everything from the optimizer module for external consumers
@@ -191,29 +193,33 @@ export const runSmartLogistics = async (
     });
     await new Promise(r => setTimeout(r, 10));
 
-    // Store-to-store transfers: every pickup → drop pair becomes one stop for the search (exact km/min),
-    // so it always rides in one route with the pickup right before the drop
-    const folded = contractTransfers(partitionOrders, matrix, limits.serviceTimeMinutes ?? config.defaultServiceTimeMinutes ?? 10);
-    if (folded.pairs > 0) {
-      onProgress({ percent: baseProgress + 10, message: `🔁 Перевозки между магазинами: ${folded.pairs}`, log: `Перевозки магазин → магазин: ${folded.pairs} (забор и доставка едут в одном рейсе, забор раньше доставки)` });
+    const progressCb = (pct: number, msg: string) => {
+      onProgress({
+        percent: baseProgress + Math.floor((pct / 100) * Math.max(10, Math.floor(75 / partitionKeys.length))),
+        message: `🧠 ${msg}`,
+        log: msg
+      });
+    };
+    const allIndices = partitionOrders.map((_, idx) => idx + 1);
+    const pairCount = partitionOrders.filter(o => o.stopType === 'pickup').length;
+    if (pairCount > 0) {
+      onProgress({ percent: baseProgress + 10, message: `🔁 Перевозки между магазинами: ${pairCount}`, log: `Перевозки магазин → магазин: ${pairCount}. Забор и доставка в одном рейсе, забор раньше; загрузка проверяется на каждом участке рейса` });
     }
 
-    // Multi-Start Optimization with ILS and Local Search
-    const solutionIndices = folded.expand(await runOptimizer(
-      folded.orders.map((_, idx) => idx + 1),
-      folded.orders,
-      folded.matrix,
-      limits,
-      config,
-      (pct, msg) => {
-        onProgress({
-          percent: baseProgress + Math.floor((pct / 100) * Math.max(10, Math.floor(75 / partitionKeys.length))),
-          message: `🧠 ${msg}`,
-          log: msg
-        });
-      },
-      engine
-    ));
+    let solutionIndices: number[][];
+    if (engine === 'smart') {
+      // SMART searches with every pickup → drop folded into one stop (exact km/min, safe load), then the
+      // transfer finishing search lets pickups and drops move apart with the exact load along the route
+      const folded = contractTransfers(partitionOrders, matrix, limits.serviceTimeMinutes ?? config.defaultServiceTimeMinutes ?? 10);
+      solutionIndices = folded.expand(await runOptimizer(folded.orders.map((_, idx) => idx + 1), folded.orders, folded.matrix, limits, config, progressCb, 'smart'));
+      if (folded.pairs > 0) {
+        const pdConfig: SmartVRPConfig = { ...config, timeBudgetMs: Math.max(1500, Math.round(getTimeBudgetMs(config, partitionOrders.length) * 0.35)) };
+        solutionIndices = await runOptimizer(allIndices, partitionOrders, matrix, limits, pdConfig, progressCb, 'pd', solutionIndices);
+      }
+    } else {
+      // SISR and HGS handle pickups and drops as separate stops with the exact load along the route
+      solutionIndices = await runOptimizer(allIndices, partitionOrders, matrix, limits, config, progressCb, engine);
+    }
 
     // Compute metrics and build final Route entities
     solutionIndices.forEach((routeIndices) => {

@@ -4,6 +4,13 @@ import { ALGORITHMS_DATA, AlgorithmDetail, getAlgorithmById } from '../data/algo
 import { motion, AnimatePresence } from 'motion/react';
 import { useTranslation } from '../i18n/I18nContext';
 
+/** The routers used in almost every case: they handle store-to-store transfers with the exact load along the route */
+const MAIN_ROUTERS = [
+  { id: 'sisr', name: 'SISR', icon: '✂️', hintKey: 'algoMainSisr' },
+  { id: 'hgs', name: 'HGS', icon: '🧬', hintKey: 'algoMainHgs' },
+  { id: 'smart_logistics', name: 'SMART', icon: '🧠', hintKey: 'algoMainSmart' },
+];
+
 interface AlgorithmSelectorProps {
   value: string;
   onChange: (val: string) => void;
@@ -30,9 +37,12 @@ export const AlgorithmSelector: React.FC<AlgorithmSelectorProps> = ({
     { id: 'Метаэвристики', label: t('algoCatMetaheuristic') }
   ];
 
-  const filteredAlgorithms = filterCategory === 'all'
+  const mainIds = MAIN_ROUTERS.map(r => r.id);
+  const filteredAlgorithms = (filterCategory === 'all'
     ? ALGORITHMS_DATA
-    : ALGORITHMS_DATA.filter(a => a.category === filterCategory);
+    : ALGORITHMS_DATA.filter(a => a.category === filterCategory))
+    .slice()
+    .sort((a, b) => (mainIds.includes(a.id) ? mainIds.indexOf(a.id) : 99) - (mainIds.includes(b.id) ? mainIds.indexOf(b.id) : 99));
 
   return (
     <div className="space-y-1 relative" id="algorithm-selector-container">
@@ -58,6 +68,34 @@ export const AlgorithmSelector: React.FC<AlgorithmSelectorProps> = ({
         </button>
       </div>
 
+      {/* The three main routers: exact transfers and load along the route; used in almost every case */}
+      <div className="rounded-xl border border-primary/30 bg-primary/5 p-1.5 space-y-1" id="algorithm-main-routers">
+        <div className="flex items-center justify-between px-1">
+          <span className="text-[10px] font-bold text-primary uppercase tracking-wider">⭐ {t('algoMainTitle')}</span>
+          <span className="text-[9px] text-muted-foreground">{t('algoMainHint')}</span>
+        </div>
+        <div className="grid grid-cols-3 gap-1">
+          {MAIN_ROUTERS.map(r => (
+            <button
+              key={`main-${r.id}`}
+              type="button"
+              id={`algorithm-main-${r.id}`}
+              disabled={disabled}
+              onClick={() => onChange(r.id)}
+              aria-pressed={value === r.id}
+              className={`h-12 rounded-lg border text-left px-2 transition-colors cursor-pointer disabled:opacity-50 ${
+                value === r.id
+                  ? 'bg-primary text-primary-foreground border-primary shadow-sm'
+                  : 'bg-background border-border hover:border-primary/50'
+              }`}
+            >
+              <div className="text-xs font-bold leading-tight">{r.icon} {r.name}</div>
+              <div className={`text-[9px] leading-tight mt-0.5 ${value === r.id ? 'text-primary-foreground/85' : 'text-muted-foreground'}`}>{t(r.hintKey)}</div>
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* Select Dropdown & Quick Tooltip Toggle */}
       <div className="relative flex items-center gap-1.5">
         <select
@@ -68,11 +106,13 @@ export const AlgorithmSelector: React.FC<AlgorithmSelectorProps> = ({
           disabled={disabled}
         >
           <option value="">{t('algoSelectPlaceholder')}</option>
-          <optgroup label={`🤖 Искусственный интеллект & 🧠 Эвристики`}>
+          <optgroup label={`⭐ ${t('algoMainTitle')}`}>
+            <option value="sisr">✂️ SISR — разрезание цепочек</option>
+            <option value="hgs">🧬 HGS — гибридный генетический поиск</option>
+            <option value="smart_logistics">🧠 SMART — Smart Logistics Optimizer</option>
+          </optgroup>
+          <optgroup label={`🤖 ${t('algoAiGroup')}`}>
             <option value="ai_mode">🤖 Режим ИИ (Gemini Neural Router)</option>
-            <option value="smart_logistics">🧠 Smart Logistics Optimizer</option>
-            <option value="sisr">✂️ SISR — разрезание цепочек (новый)</option>
-            <option value="hgs">🧬 HGS — гибридный генетический поиск (новый)</option>
           </optgroup>
           <optgroup label={`⚡ ${t('algoCatBasic')}`}>
             <option value="savings">Clarke-Wright (Savings)</option>
@@ -271,13 +311,18 @@ export const AlgorithmSelector: React.FC<AlgorithmSelectorProps> = ({
                         className={`p-3.5 rounded-xl border-2 transition-all cursor-pointer flex flex-col justify-between gap-2.5 ${
                           isSelected
                             ? 'border-primary bg-primary/5 ring-1 ring-primary/20 shadow-sm'
-                            : 'border-border hover:border-primary/40 bg-card hover:bg-muted/20'
+                            : mainIds.includes(algo.id)
+                              ? 'border-primary/40 bg-primary/[0.03] hover:border-primary/70'
+                              : 'border-border hover:border-primary/40 bg-card hover:bg-muted/20'
                         }`}
                       >
                         <div className="flex items-start justify-between gap-2">
                           <div>
                             <div className="flex items-center gap-1.5">
                               <span className="font-bold text-xs text-foreground">{algo.name}</span>
+                              {mainIds.includes(algo.id) && (
+                                <span className="text-[9px] px-1.5 py-0.2 rounded bg-primary text-primary-foreground font-bold">⭐ {t('algoMainBadge')}</span>
+                              )}
                               <span className="text-[9px] px-1.5 py-0.2 rounded bg-muted text-muted-foreground font-semibold">
                                 {algo.category}
                               </span>

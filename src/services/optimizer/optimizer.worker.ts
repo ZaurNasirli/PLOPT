@@ -11,7 +11,7 @@ self.onmessage = async (event: MessageEvent<OptimizerJob>) => {
     const matrix = new RoadMatrixLookup(job.n, job.distances, job.durations, job.isRealRoad, job.hasFallback);
     const progress = (percent: number, message: string) => (self as unknown as Worker).postMessage({ type: 'progress', percent, message });
     const result = job.engine && job.engine !== 'smart'
-      ? await optimizeAdvanced(job.engine, job.orderIndices, job.orders, matrix, job.limits, job.config, progress)
+      ? await optimizeAdvanced(job.engine, job.orderIndices, job.orders, matrix, job.limits, job.config, progress, undefined, job.start)
       : await optimizeMultiStartVRP(job.orderIndices, job.orders, matrix, job.limits, job.config, progress);
     (self as unknown as Worker).postMessage({ type: 'done', result });
   } catch (err) {

@@ -10,11 +10,13 @@ import { SmartVRPConfig, getTimeBudgetMs } from '../types';
 import { createRng } from '../searchControl';
 import { compileModel } from './model';
 import { evaluateSolutionScore } from '../ObjectiveFunction';
-import { construct, solveSISR } from './sisr';
+import { construct, runSISR, solveSISR } from './sisr';
+import { Solution } from './solution';
 import { runHGS } from './hgs';
 import { polish } from './localSearch';
 
-export type AdvancedEngine = 'sisr' | 'hgs';
+/** 'pd': a finishing search for transfers that starts from a given plan (used after SMART) */
+export type AdvancedEngine = 'sisr' | 'hgs' | 'pd';
 
 export async function optimizeAdvanced(
   engine: AdvancedEngine,
@@ -24,7 +26,8 @@ export async function optimizeAdvanced(
   limits: RoutingLimits,
   config: SmartVRPConfig,
   onProgress?: (percent: number, message: string) => void,
-  seed = 20261125
+  seed = 20261125,
+  startPlan?: number[][]
 ): Promise<number[][]> {
   if (orderIndices.length === 0) return [];
   if (orderIndices.length === 1) return [orderIndices];
@@ -40,7 +43,17 @@ export async function optimizeAdvanced(
   const report = (f: number, text: string) => onProgress?.(15 + Math.floor(Math.min(1, f) * 80), text);
 
   let sol = construct(m, rng);
-  if (engine === 'hgs') {
+  if (engine === 'pd' && startPlan) {
+    // start from the given plan (SMART with every transfer as one block) and let pickups and drops
+    // move apart wherever it pays and the load allows; keep the start when nothing better is found
+    const jobOfNode = new Map<number, number>();
+    m.nodes.forEach((ns, j) => ns.forEach(n => jobOfNode.set(n, j)));
+    const lists = startPlan.map(r => { const seen = new Set<number>(); return r.map(n => jobOfNode.get(n)!).filter(j => j !== undefined && !seen.has(j) && seen.add(j)); });
+    const start = Solution.fromJobLists(m, lists);
+    const startCost = start.cost();
+    const found = runSISR(start, { deadline, rng, t0Km: 1, tfKm: 0.02, onProgress: (f, best) => report(f, `Перевозки: точная загрузка по рейсу, стоимость ${best.toFixed(3)}`) });
+    sol = found.cost() <= startCost ? found : start;
+  } else if (engine === 'hgs') {
     sol = runHGS(m, { deadline, rng, onProgress: (f, best) => report(f, `HGS: поколения, лучшая стоимость ${best.toFixed(3)}`) });
   } else {
     sol = solveSISR(sol, { deadline, rng, onProgress: (f, best) => report(f, `SISR: разрезание цепочек, лучшая стоимость ${best.toFixed(3)}`) });
@@ -48,8 +61,12 @@ export async function optimizeAdvanced(
   const polished = polish(sol, polishMs);
   if (coversAll(polished.toNodeRoutes(), orderIndices) && polished.cost() <= sol.cost()) sol = polished;
   const plan = sol.toNodeRoutes();
-  // safety net: every order exactly once, else one route per order (never lose an order)
-  return coversAll(plan, orderIndices) ? plan : orderIndices.map(i => [i]);
+  // safety net: every order exactly once (never lose an order); the start plan, else the greedy plan,
+  // which keeps every transfer together
+  if (coversAll(plan, orderIndices)) return plan;
+  if (startPlan && coversAll(startPlan, orderIndices)) return startPlan;
+  const greedy = construct(m, rng).toNodeRoutes();
+  return coversAll(greedy, orderIndices) ? greedy : orderIndices.map(i => [i]);
 }
 
 /** Every order index exactly once */

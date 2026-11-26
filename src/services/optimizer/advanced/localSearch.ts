@@ -6,8 +6,8 @@
  * Used by HGS to "educate" every child and by both routers as the final polish.
  */
 import { LOAD_TOLERANCE_RATIO } from '../ConstraintValidator';
-import { loadFits, Model } from './model';
-import { refresh, seqCost, shiftOk, Solution } from './solution';
+import { loadFits, Model, pairsOk, routePeak } from './model';
+import { bestPairSpot, emptyRoute, refresh, seqCost, shiftOk, Solution } from './solution';
 
 const EPS = 1e-9;
 
@@ -20,6 +20,8 @@ const seqPrice = (m: Model, jobs: number[]) => {
 /** All limits of a whole route (loads, truck ranks, stores, regions, conflicts, locks, shift) */
 export function routeFeasible(m: Model, jobs: number[], tag: number): { ok: boolean; price: number } {
   if (!jobs.length) return { ok: true, price: 0 };
+  // transfers: pickup and drop in this route, the pickup first (also for a one-stop route)
+  if (m.hasPairs && !pairsOk(m, jobs)) return { ok: false, price: 0 };
   let w = 0, v = 0, s = 0, rank = Infinity;
   for (const j of jobs) {
     w += m.W[j]; v += m.V[j]; s += m.S[j]; if (m.rank[j] < rank) rank = m.rank[j];
@@ -27,6 +29,7 @@ export function routeFeasible(m: Model, jobs: number[], tag: number): { ok: bool
   }
   const { price, min } = seqPrice(m, jobs);
   if (jobs.length > 1) {
+    if (m.hasPairs) { const pk = routePeak(m, jobs); w = pk.w; v = pk.v; }
     if (!loadFits(m, w, v, s, rank)) return { ok: false, price };
     if (!shiftOk(m, jobs.length, min)) return { ok: false, price };
     if (m.maxCust < Infinity || m.maxRegions < Infinity) {
@@ -44,11 +47,21 @@ function improveIntra(m: Model, jobs: number[]): number[] {
   let best = jobs.slice();
   let bestPrice = seqPrice(m, best).price;
   const n = best.length;
+  // a route with a transfer: a new order must keep every pickup before its drop and the load in the truck
+  const withPairs = m.hasPairs && jobs.some(j => m.partner[j] >= 0);
+  let sumS = 0, rank = Infinity;
+  for (const j of jobs) { sumS += m.S[j]; if (m.rank[j] < rank) rank = m.rank[j]; }
+  const orderOk = (cand: number[]) => {
+    if (!withPairs) return true;
+    if (!pairsOk(m, cand)) return false;
+    const pk = routePeak(m, cand);
+    return loadFits(m, pk.w, pk.v, sumS, rank);
+  };
   if (n < 3) {
     if (n === 2) {
       const rev = [best[1], best[0]];
       const p = seqPrice(m, rev).price;
-      if (p < bestPrice - EPS && shiftOk(m, 2, seqCost(m, rev).min)) return rev;
+      if (p < bestPrice - EPS && shiftOk(m, 2, seqCost(m, rev).min) && orderOk(rev)) return rev;
     }
     return best;
   }
@@ -61,7 +74,7 @@ function improveIntra(m: Model, jobs: number[]): number[] {
       for (let k = i + 1; k < n && !improved; k++) {
         const cand = [...best.slice(0, i), ...best.slice(i, k + 1).reverse(), ...best.slice(k + 1)];
         const p = seqPrice(m, cand);
-        if (p.price < bestPrice - EPS && shiftOk(m, n, p.min)) { best = cand; bestPrice = p.price; improved = true; }
+        if (p.price < bestPrice - EPS && shiftOk(m, n, p.min) && orderOk(cand)) { best = cand; bestPrice = p.price; improved = true; }
       }
     }
     // or-opt: move a run of 1..3 stops elsewhere in the route
@@ -73,7 +86,7 @@ function improveIntra(m: Model, jobs: number[]): number[] {
           if (p === i) continue;
           const cand = [...rest.slice(0, p), ...run, ...rest.slice(p)];
           const pr = seqPrice(m, cand);
-          if (pr.price < bestPrice - EPS && shiftOk(m, n, pr.min)) { best = cand; bestPrice = pr.price; improved = true; }
+          if (pr.price < bestPrice - EPS && shiftOk(m, n, pr.min) && orderOk(cand)) { best = cand; bestPrice = pr.price; improved = true; }
         }
       }
     }
@@ -117,6 +130,22 @@ function improveInter(sol: Solution, deadline: number): boolean {
         price[ra] = fa.price; price[rb] = fb.price;
         return true;
       };
+      // a transfer moves as a whole: pickup and drop together to their best places in B
+      if (m.partner[a] >= 0) {
+        const q = m.partner[a];
+        if (sol.where[q] !== ra) continue;
+        const p = m.pick[a] ? a : q, d = m.partner[p];
+        const na = A.jobs.filter(x => x !== p && x !== d);
+        const tmpB = { ...emptyRoute(B.tag), jobs: B.jobs.slice() };
+        refresh(m, tmpB);
+        const spot = bestPairSpot(m, tmpB, rb, p, d, sol.where);
+        if (!spot) continue;
+        const nb = B.jobs.slice();
+        nb.splice(spot.a, 0, p);
+        nb.splice(spot.b, 0, d);
+        if (tryPair(na, nb)) any = true;
+        continue;
+      }
       const restA = A.jobs.filter(x => x !== a);
       // relocate a next to b (before or after)
       let done = false;

@@ -922,5 +922,12 @@ export const az = {
   transferDropFrom: 'Daşıma ← {store}',
   transferPickupHint: 'Burada maşın malı götürür və «{store}» mağazasına aparır',
   transferDropHint: 'Mal anbardan deyil, «{store}» mağazasından gətirilir',
-  transferAutoFixed: 'Daşıma: götürmə həmin reysdə çatdırılmadan əvvələ qoyuldu'
+  transferAutoFixed: 'Daşıma: götürmə həmin reysdə çatdırılmadan əvvələ qoyuldu',
+  algoMainTitle: 'Əsas marşrutlaşdırıcılar',
+  algoMainHint: 'daşımalar və reys boyu yük — dəqiq',
+  algoMainBadge: 'Əsas',
+  algoMainSisr: 'adətən ən yaxşı',
+  algoMainHgs: '«Keyfiyyət» üçün',
+  algoMainSmart: 'yoxlanılmış',
+  algoAiGroup: 'Süni intellekt'
 };

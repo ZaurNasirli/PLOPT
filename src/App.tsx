@@ -38,6 +38,7 @@ import {
   calculateDistance, RoutingLimits, ProgressUpdate, getRouteGeometry, getRouteNavDetails,
   optimizeRoute2Opt, optimizeRouteNearestNeighbor, optimizeRouteGreedy, getRouteTotalDistance, getDistanceMatrix
 } from './services/routingService';
+import { peakLoad } from './services/loadProfile';
 import { expandImportedTransfers, isPickup, normalizeTransferRoutes, withPartners, withoutOrphanPickups } from './services/transfers';
 
 /** every algorithm id handled in handleRunRouting (anything else falls back to SMART) */
@@ -1400,8 +1401,8 @@ export default function App() {
       const legs = calculateRouteLegs(r, rOrders);
       return {
         name: r.name,
-        weightLoad: maxW > 0 ? Math.round((weight / maxW) * 100) : 0,
-        volumeLoad: maxV > 0 ? Math.round((volume / maxV) * 100) : 0,
+        weightLoad: maxW > 0 ? Math.round((peakLoad(rOrders).w / maxW) * 100) : 0,
+        volumeLoad: maxV > 0 ? Math.round((peakLoad(rOrders).v / maxV) * 100) : 0,
         orders: rOrders.length,
         distance: legs.totalRoundTripKm
       };
@@ -1441,8 +1442,8 @@ export default function App() {
         'Кол-во магазинов': storesCount,
         'Вес (кг)': weight,
         'Объем (м³)': volume,
-        'Загрузка веса (%)': maxW > 0 ? Math.round((weight / maxW) * 100) : 0,
-        'Загрузка объема (%)': maxV > 0 ? Math.round((volume / maxV) * 100) : 0
+        'Загрузка веса (%)': maxW > 0 ? Math.round((peakLoad(rOrders).w / maxW) * 100) : 0,
+        'Загрузка объема (%)': maxV > 0 ? Math.round((peakLoad(rOrders).v / maxV) * 100) : 0
       };
     });
     const wsRoutes = XLSX.utils.json_to_sheet(routesData);
@@ -2247,9 +2248,9 @@ export default function App() {
         'Возврат на склад (км)': legs.toWarehouseKm,
         'Время в пути (мин)': r.roadDurationMin ?? r.durationMinutes ?? '',
         'Вес (кг)': Math.round(weight),
-        'Загрузка веса (%)': maxW > 0 ? Math.round((weight / maxW) * 100) : 0,
+        'Загрузка веса (%)': maxW > 0 ? Math.round((peakLoad(rOrders).w / maxW) * 100) : 0,
         'Объем (м³)': Number(volume.toFixed(2)),
-        'Загрузка объема (%)': maxV > 0 ? Math.round((volume / maxV) * 100) : 0,
+        'Загрузка объема (%)': maxV > 0 ? Math.round((peakLoad(rOrders).v / maxV) * 100) : 0,
         'Тип расчета': r.routingSource || (r.isRealRoad ? 'OSRM' : 'HAVERSINE'),
         'Обоснование / Район': r.description || r.whyThisRoute || ''
       };

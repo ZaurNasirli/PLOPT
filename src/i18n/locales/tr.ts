@@ -922,5 +922,12 @@ export const tr = {
   transferDropFrom: 'Transfer ← {store}',
   transferPickupHint: 'Burada araç malı alır ve «{store}» mağazasına götürür',
   transferDropHint: 'Mal depodan değil, «{store}» mağazasından getirilir',
-  transferAutoFixed: 'Transfer: alım aynı seferde teslimattan önceye kondu'
+  transferAutoFixed: 'Transfer: alım aynı seferde teslimattan önceye kondu',
+  algoMainTitle: 'Ana rotalayıcılar',
+  algoMainHint: 'transferler ve sefer boyu yük — tam',
+  algoMainBadge: 'Ana',
+  algoMainSisr: 'genelde en iyi',
+  algoMainHgs: '«Kalite» için',
+  algoMainSmart: 'denenmiş',
+  algoAiGroup: 'Yapay zekâ'
 };

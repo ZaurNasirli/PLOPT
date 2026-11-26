@@ -44,6 +44,7 @@ import { BulkActionsMenu } from '../BulkActionsMenu';
 import { useTranslation } from '../../i18n/I18nContext';
 import { WAREHOUSE_LOCATION } from '../../mockData';
 import { cn } from '../../lib/utils';
+import { peakLoad } from '../../services/loadProfile';
 
 export type MobileTab = 'map' | 'routes' | 'orders' | 'dispatch';
 
@@ -713,9 +714,10 @@ export const AndroidMobileLayout: React.FC<AndroidMobileLayoutProps> = ({
           ) : (
             <div className="space-y-3">
               {routes.map((route, idx) => {
-                const rOrders = (orders || []).filter(o => route.orderIds?.includes(o.id));
-                const totalVol = rOrders.reduce((s, o) => s + (o.volume || 0), 0);
-                const totalWt = rOrders.reduce((s, o) => s + (o.weight || 0), 0);
+                const byId = new Map((orders || []).map(o => [o.id, o]));
+                const rOrders = (route.orderIds || []).map(id => byId.get(id)).filter((o): o is Order => Boolean(o));
+                // highest load along the route (transfers are picked up on the way)
+                const { v: totalVol, w: totalWt } = peakLoad(rOrders);
                 const truckLimit = truckTypes.find(t => t.id === route.truckTypeId);
                 const maxVol = truckLimit?.maxVolume || 10;
                 const maxWt = truckLimit?.maxWeight || 1500;

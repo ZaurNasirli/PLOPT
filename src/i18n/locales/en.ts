@@ -922,5 +922,12 @@ export const en = {
   transferDropFrom: 'Transfer ← {store}',
   transferPickupHint: 'The truck picks the goods up here and takes them to «{store}»',
   transferDropHint: 'The goods come from «{store}», not from the warehouse',
-  transferAutoFixed: 'Transfer: the pickup was put into the same route before the drop'
+  transferAutoFixed: 'Transfer: the pickup was put into the same route before the drop',
+  algoMainTitle: 'Main routers',
+  algoMainHint: 'transfers and load along the route — exact',
+  algoMainBadge: 'Main',
+  algoMainSisr: 'usually best',
+  algoMainHgs: 'for «Quality»',
+  algoMainSmart: 'proven',
+  algoAiGroup: 'Artificial intelligence'
 };

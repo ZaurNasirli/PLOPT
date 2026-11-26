@@ -41,9 +41,20 @@ Daşımanı necə tanımaq olar:
 - mavi nişan **«Daşıma ← mağaza»** — mal buraya başqa mağazadan gəlir;
 - xəritədə mağaza nişanının yanında **↑ həcm** (götürmə) və **↓** (daşıma ilə gələn mal).
 
+Maşının yükü reys boyu dəqiq hesablanır:
+
+- maşın anbardan reysin bütün adi sifarişləri ilə çıxır;
+- hər çatdırılmada yük azalır, götürmədə daşınan həcm və çəki qədər artır, daşımanın çatdırılmasında yenə azalır;
+- tutum yükün cəmi ilə deyil, reys boyu **ən yüksək yük** ilə yoxlanılır.
+
+Nümunə: maşının tutumu 10 m³, anbardan 10 m³ çıxır (A mağazasının sifarişi 1 m³ + digərləri 9 m³), A mağazasından 2 m³ götürmək lazımdır. A birinci dayanacaq ola bilməz: orada yük 10 − 1 + 2 = 11 m³ olardı. Başqa mağazaya çatdırılmadan sonra 2 m³ yerləşir.
+
+**SISR**, **HGS** və **SMART** götürmə ilə çatdırılma arasında başqa mağazalara da girə bilər, əgər bu kilometri azaldırsa və yük hər hissədə tutuma sığırsa. Digər alqoritmlər daşımanı ehtiyatla hesablayır: daşınan yükü anbardan götürülmüş kimi sayır.
+
 Vacib məqamlar:
 
-- Götürmə nöqtəsinin öz həcmi və çəkisi 0-dır, daşınan yük çatdırılma nöqtəsində sayılır. Buna görə maşının tutumu heç vaxt aşılmır.
+- Götürmə nöqtəsinin öz həcmi və çəkisi 0-dır, daşınan yük götürmədən çatdırılmaya qədər maşında sayılır.
+- Yükləmə faizi, maşının seçilməsi və reysin yoxlanması reys boyu ən yüksək yükə görə hesablanır.
 - Götürmə nöqtələri «reysdə mağaza sayı» və «reysdə region sayı» limitlərinə daxil deyil. Növbənin uzunluğu isə yol və dayanma vaxtı ilə birlikdə hesablanır.
 - Götürməni və ya çatdırılmanı əllə başqa reysə keçirsəniz, proqram cütü özü düzəldir: götürmə çatdırılma ilə eyni reysə, ondan əvvələ qoyulur. Çatdırılma reysdən çıxarılsa, götürmə də çıxır.
 
@@ -52,7 +63,7 @@ Vacib məqamlar:
 1. **Marşrutlaşdırıcı** düyməsini (yuxarıda, ayarlar nişanı) basın.
 2. **Ümumi parametrlər** bölməsində limitləri yazın: maşının həcmi və çəkisi, reysdə mağaza və region sayı, reys və kilometr qiyməti, dayanma vaxtı.
 3. **Nəqliyyat tipləri** bölməsində maşın tiplərini və hər tipdən neçə maşın olduğunu yazın.
-4. **Alqoritmlər** bölməsində alqoritmi seçin. Tövsiyə olunur: **SISR** və ya **HGS** (ən yaxşı nəticə), **Smart Logistics Optimizer** (SMART). Rejim: «Быстрый» (sürətli), «Баланс» (balans), «Качество» (keyfiyyət).
+4. **Alqoritmlər** bölməsində alqoritmi seçin. Yuxarıda ayrıca blokda üç **əsas marşrutlaşdırıcı** var: **SISR** (adətən ən yaxşı), **HGS** («Качество» rejimi üçün) və **SMART**. Onlar daşımaları və reys boyu yükü dəqiq hesablayır. Digər alqoritmlər aşağıdakı siyahıdadır. Rejim: «Быстрый» (sürətli), «Баланс» (balans), «Качество» (keyfiyyət).
 5. **Marşrutlaşdırmanı işə sal** düyməsini basın. Nəticə pəncərəsində yürüşü, qiyməti və maşın sayını əvvəlki planla müqayisə edin, sonra **Принять оптимизацию** (qəbul et) və ya **Вернуть как было** (geri qaytar) düyməsini basın.
 
 Əlavə məhdudiyyətlər (marşrutlaşdırıcıda):

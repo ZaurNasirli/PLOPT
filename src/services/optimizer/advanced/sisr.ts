@@ -9,8 +9,8 @@
  *   - accept by simulated annealing (worse plans are accepted early, less and less later).
  * Cheap steps → tens of thousands of them in the time budget; every limit is kept at every step.
  */
-import type { Model } from './model';
-import { canHost, insertDelta, routeCost, shiftOk, Solution } from './solution';
+import { loadPoints, LoadPoints, Model } from './model';
+import { bestPairSpot, canHost, fitsAt, insertDelta, routeCost, shiftOk, Solution } from './solution';
 
 export interface SearchOptions {
   deadline: number;
@@ -33,12 +33,17 @@ const SPLIT_DEPTH = 0.01;
 /** Cheapest feasible insertion of job j; opens a new route when nothing fits */
 export function insertJob(sol: Solution, j: number, rng: () => number, blink = BLINK): void {
   const m = sol.m;
+  if (sol.where[j] >= 0) return;
+  if (m.partner[j] >= 0) { insertTransfer(sol, j, rng, blink, true); return; }
   let bestRi = -1, bestPos = 0, bestDelta = Infinity;
   const tryRoute = (ri: number) => {
     const r = sol.routes[ri];
-    if (!r.jobs.length || !canHost(m, r, j, sol.where, ri)) return;
+    if (!r.jobs.length || !canHost(m, r, j, sol.where, ri, !m.hasPairs)) return;
+    // with transfers the load depends on the position: exact check per position
+    const lp: LoadPoints | null = m.hasPairs ? loadPoints(m, r.jobs) : null;
     for (let pos = 0; pos <= r.jobs.length; pos++) {
       if (blink > 0 && rng() < blink) continue;
+      if (lp && !fitsAt(m, r, lp, j, pos)) continue;
       const { dKm, dMin } = insertDelta(m, r, j, pos);
       if (!shiftOk(m, r.jobs.length + 1, r.min + dMin)) continue;
       const d = m.kmCost * dKm + m.minCost * dMin;
@@ -75,19 +80,70 @@ export function insertJob(sol: Solution, j: number, rng: () => number, blink = B
   else sol.newRoute(j);
 }
 
+/**
+ * A transfer (j is its pickup or its drop): pickup and drop go into one route together, the pickup first,
+ * at the cheapest places where the load fits all along the route. allowNew = false: no new route; false
+ * when nothing fits.
+ */
+export function insertTransfer(sol: Solution, j: number, rng: () => number, blink = BLINK, allowNew = true): boolean {
+  const m = sol.m;
+  const p = m.pick[j] ? j : m.partner[j];
+  const d = m.partner[p];
+  // a half left in a route (should not happen) goes out first: the pair moves as one
+  if (sol.where[p] >= 0) sol.removeJob(p);
+  if (sol.where[d] >= 0) sol.removeJob(d);
+  const tag = m.lock[p] >= 0 ? m.lock[p] : m.lock[d];
+  let bestRi = -1, best: { a: number; b: number } | null = null, bestDelta = Infinity;
+  const tryRoute = (ri: number) => {
+    const r = sol.routes[ri];
+    if (!r.jobs.length) return;
+    const spot = bestPairSpot(m, r, ri, p, d, sol.where, rng, blink);
+    if (!spot) return;
+    const delta = m.kmCost * spot.dKm + m.minCost * spot.dMin;
+    if (delta < bestDelta) { bestDelta = delta; bestRi = ri; best = spot; }
+  };
+  if (tag >= 0) {
+    sol.routes.forEach((r, ri) => { if (r.tag === tag) tryRoute(ri); });
+  } else if (sol.routes.length <= 24) {
+    for (let ri = 0; ri < sol.routes.length; ri++) tryRoute(ri);
+  } else {
+    const seen = new Set<number>();
+    for (const nb of [...m.near[p], ...m.near[d]]) {
+      const ri = sol.where[nb];
+      if (ri >= 0 && !seen.has(ri)) { seen.add(ri); tryRoute(ri); }
+    }
+    if (bestRi < 0) for (let ri = 0; ri < sol.routes.length; ri++) if (!seen.has(ri)) tryRoute(ri);
+  }
+  const md = m.matrix;
+  const aloneKm = md.getDistance(0, m.first[p]) + md.getDistance(m.last[p], m.first[d]) + md.getDistance(m.last[d], 0);
+  const aloneMin = md.getDuration(0, m.first[p]) + m.travelMin(m.last[p], m.first[d]) + md.getDuration(m.last[d], 0) + 2 * m.serviceMin;
+  if (bestRi >= 0 && (!allowNew || bestDelta < m.routeCost + m.kmCost * aloneKm + m.minCost * aloneMin)) {
+    const spot = best as unknown as { a: number; b: number };
+    sol.insertPair(p, d, bestRi, spot.a, spot.b);
+    return true;
+  }
+  if (!allowNew) return false;
+  sol.newPairRoute(p, d);
+  return true;
+}
+
 /** Cheapest feasible insertion without opening a route; false when nothing fits */
 export function insertNoNew(sol: Solution, j: number, rng: () => number, bestFit = false): boolean {
   const m = sol.m;
+  if (sol.where[j] >= 0) return true;
+  if (m.partner[j] >= 0) return insertTransfer(sol, j, rng, BLINK, false);
   let bestRi = -1, bestPos = 0, bestDelta = Infinity;
   const capV = Math.min(m.globalV, m.trucks.length ? Math.max(...m.trucks.map(t => t.maxV)) : Infinity);
   const capW = Math.min(m.globalW, m.trucks.length ? Math.max(...m.trucks.map(t => t.maxW)) : Infinity);
   for (let ri = 0; ri < sol.routes.length; ri++) {
     const r = sol.routes[ri];
-    if (!r.jobs.length || !canHost(m, r, j, sol.where, ri)) continue;
+    if (!r.jobs.length || !canHost(m, r, j, sol.where, ri, !m.hasPairs)) continue;
+    const lp: LoadPoints | null = m.hasPairs ? loadPoints(m, r.jobs) : null;
     // best fit: prefer the fullest truck the stop still fits in (bin packing), km as tie-break
     const fill = bestFit ? -Math.max(Number.isFinite(capV) ? (r.v + m.V[j]) / capV : 0, Number.isFinite(capW) ? (r.w + m.W[j]) / capW : 0) * 1e3 : 0;
     for (let pos = 0; pos <= r.jobs.length; pos++) {
       if (rng() < BLINK) continue;
+      if (lp && !fitsAt(m, r, lp, j, pos)) continue;
       const { dKm, dMin } = insertDelta(m, r, j, pos);
       if (!shiftOk(m, r.jobs.length + 1, r.min + dMin)) continue;
       const d = fill + m.kmCost * dKm + m.minCost * dMin;
@@ -107,8 +163,9 @@ export function fleetLowerBound(m: Model): number {
 }
 
 function fleetLowerBoundOk(m: Model, k: number): boolean {
+  // what leaves the warehouse (goods of transfers come from stores)
   let w = 0, v = 0;
-  for (let j = 0; j < m.J; j++) { w += m.W[j]; v += m.V[j]; }
+  for (let j = 0; j < m.J; j++) if (!m.tdrop[j]) { w += m.W[j]; v += m.V[j]; }
   const maxW = Math.min(m.globalW, m.trucks.length ? Math.max(...m.trucks.map(t => t.maxW)) : Infinity) * 1.03;
   const maxV = Math.min(m.globalV, m.trucks.length ? Math.max(...m.trucks.map(t => t.maxV)) : Infinity) * 1.03;
   return w <= k * maxW + 1e-9 && v <= k * maxV + 1e-9;
@@ -206,7 +263,7 @@ export function ruin(sol: Solution, rng: () => number): number[] {
     });
     if (ri >= 0) {
       for (const j of [...sol.routes[ri].jobs]) { sol.removeJob(j); removed.push(j); }
-      return removed;
+      return withPartners(sol, removed);
     }
   }
   const avgCard = m.J / live.length;
@@ -242,6 +299,17 @@ export function ruin(sol: Solution, rng: () => number): number[] {
     }
     for (const j of cut) { sol.removeJob(j); removed.push(j); }
     ruined.add(ri);
+  }
+  return withPartners(sol, removed);
+}
+
+/** A transfer leaves its route as a whole: add the partners of the removed stops */
+function withPartners(sol: Solution, removed: number[]): number[] {
+  const m = sol.m;
+  if (!m.hasPairs) return removed;
+  for (let k = 0; k < removed.length; k++) {
+    const q = m.partner[removed[k]];
+    if (q >= 0 && sol.where[q] >= 0) { sol.removeJob(q); removed.push(q); }
   }
   return removed;
 }

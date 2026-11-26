@@ -1,6 +1,7 @@
 import { Order } from '../../types';
 import type { RoutingLimits } from '../routingService';
 import { LOAD_TOLERANCE_RATIO, findBestTruck } from './ConstraintValidator';
+import { peakLoad } from '../loadProfile';
 
 /**
  * Assigns a truck type to every route when the dispatcher limited how many trucks of a type exist.
@@ -26,8 +27,7 @@ export function hasFleetLimits(limits: RoutingLimits): boolean {
 }
 
 function fits(orders: Order[], truck: NonNullable<RoutingLimits['truckTypes']>[number], limits: RoutingLimits): boolean {
-  const weight = orders.reduce((s, o) => s + (o.weight || 0), 0);
-  const volume = orders.reduce((s, o) => s + (o.volume || 0), 0);
+  const { w: weight, v: volume } = peakLoad(orders);
   if (weight > truck.maxWeight * LOAD_TOLERANCE_RATIO || volume > truck.maxVolume * LOAD_TOLERANCE_RATIO) return false;
   return orders.every(o => {
     if (!o.allowedTruckType) return true;
@@ -60,10 +60,10 @@ export function assignFleet(routesOrders: Order[][], limits: RoutingLimits, prea
   }
 
   const biggest = types[types.length - 1];
-  const demand = (orders: Order[]) => Math.max(
-    orders.reduce((s, o) => s + (o.volume || 0), 0) / Math.max(0.1, biggest.maxVolume),
-    orders.reduce((s, o) => s + (o.weight || 0), 0) / Math.max(1, biggest.maxWeight)
-  );
+  const demand = (orders: Order[]) => {
+    const p = peakLoad(orders);
+    return Math.max(p.v / Math.max(0.1, biggest.maxVolume), p.w / Math.max(1, biggest.maxWeight));
+  };
   const pending = order.filter(i => !(preassigned && preassigned[i] && truckIds[i] === preassigned[i]));
   pending.sort((a, b) => demand(routesOrders[b]) - demand(routesOrders[a]));
 

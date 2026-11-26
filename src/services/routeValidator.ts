@@ -2,6 +2,7 @@ import { Route, Order, TruckType, RoutingSource } from '../types';
 import { RoutingLimits } from './routingService';
 import { getRouteDistanceInfo } from './distanceHelper';
 import { getEffectiveCapacityLimit, LOAD_TOLERANCE_RATIO } from './optimizer/ConstraintValidator';
+import { peakLoad } from './loadProfile';
 
 export type ValidationSeverity = 'ERROR' | 'WARNING' | 'INFO';
 
@@ -134,8 +135,8 @@ export function validateSingleRoute(
   const effectiveMaxWeight = effectiveCap.effectiveMaxWeight;
   const effectiveMaxVolume = effectiveCap.effectiveMaxVolume;
 
-  const totalWeight = routeOrders.reduce((sum, o) => sum + o.weight, 0);
-  const totalVolume = routeOrders.reduce((sum, o) => sum + o.volume, 0);
+  // highest load in the truck along the route (store-to-store transfers are picked up on the way)
+  const { w: totalWeight, v: totalVolume } = peakLoad(routeOrders);
   const storeNames = new Set(routeOrders.map(o => o.customerName));
 
   // Weight check with consistent tolerance

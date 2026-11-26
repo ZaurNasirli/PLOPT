@@ -4,6 +4,7 @@
 import { Route, Order } from '../types';
 import { RoutingLimits } from './routingService';
 import { getEffectiveCapacityLimit } from './optimizer/ConstraintValidator';
+import { peakLoad } from './loadProfile';
 
 export interface RouteDetailKpi {
   id: string;
@@ -151,8 +152,10 @@ export class KpiService {
       const maxV = effectiveCap.baseMaxVolume;
       const truckTypeName = effectiveCap.truckName || `Авто (${maxW} кг / ${maxV} м³)`;
 
-      const weightLoadPercent = maxW > 0 ? Math.round((weight / maxW) * 100) : 0;
-      const volumeLoadPercent = maxV > 0 ? Math.round((volume / maxV) * 100) : 0;
+      // load % from the highest load along the route (transfers are picked up on the way)
+      const peak = peakLoad(routeOrders);
+      const weightLoadPercent = maxW > 0 ? Math.round((peak.w / maxW) * 100) : 0;
+      const volumeLoadPercent = maxV > 0 ? Math.round((peak.v / maxV) * 100) : 0;
       const peakLoadPercent = Math.max(weightLoadPercent, volumeLoadPercent);
       const bottleneck: 'volume' | 'weight' = volumeLoadPercent >= weightLoadPercent ? 'volume' : 'weight';
 

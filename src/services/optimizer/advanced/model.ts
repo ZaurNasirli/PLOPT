@@ -73,6 +73,17 @@ export interface Model {
   nodeOrder: Int32Array;
   /** full objective of a plan given as node routes (the SMART objective); undefined = internal cost */
   scorer?: (routes: number[][]) => number;
+  /**
+   * Store-to-store transfers: a pickup job and its drop job are partners (-1 = none). Both ride in one
+   * route, the pickup first. The pickup carries no load of its own (W, V = 0) and adds PW/PV on the way;
+   * the drop (W, V = the moved goods) is not loaded at the warehouse.
+   */
+  partner: Int32Array;
+  pick: Uint8Array;
+  tdrop: Uint8Array;
+  PW: Float64Array;
+  PV: Float64Array;
+  hasPairs: boolean;
 }
 
 export function compileModel(
@@ -90,8 +101,10 @@ export function compileModel(
   const inGroup = new Map<number, number>();
   const groups: number[][] = [];
   const nodeById = new Map(orderIndices.map(n => [orderOf(n)?.id, n]));
+  // stops of a transfer move on their own (pickup and drop are kept together by the pair rules)
+  const isTransferNode = (n: number) => { const o = orderOf(n); return !!o?.transferId && (o.stopType === 'pickup' || o.stopType === 'drop'); };
   for (const g of limits.mustStayTogether ?? []) {
-    const members = (g ?? []).map(id => nodeById.get(id)).filter((n): n is number => n !== undefined && !inGroup.has(n));
+    const members = (g ?? []).map(id => nodeById.get(id)).filter((n): n is number => n !== undefined && !inGroup.has(n) && !isTransferNode(n));
     if (members.length < 2) continue;
     // nearest-neighbour order inside the group
     const rest = [...members];
@@ -163,6 +176,31 @@ export function compileModel(
     lastCust[j] = nodeCust.get(ns[ns.length - 1])!;
   });
 
+  // ---- store-to-store transfers: pickup ↔ drop partners
+  const partner = new Int32Array(J).fill(-1), pick = new Uint8Array(J), tdrop = new Uint8Array(J);
+  const PW = new Float64Array(J), PV = new Float64Array(J);
+  {
+    const pickOf = new Map<string, number>(), dropOf = new Map<string, number>();
+    jobNodes.forEach((ns, j) => {
+      if (ns.length !== 1) return;
+      const o = orderOf(ns[0]);
+      if (!o?.transferId) return;
+      if (o.stopType === 'pickup') pickOf.set(o.transferId, j); else if (o.stopType === 'drop') dropOf.set(o.transferId, j);
+    });
+    for (const [tid, pj] of pickOf) {
+      const dj = dropOf.get(tid);
+      if (dj === undefined) continue;
+      partner[pj] = dj; partner[dj] = pj; pick[pj] = 1; tdrop[dj] = 1;
+      const po = orderOf(jobNodes[pj][0]);
+      PW[pj] = po?.transferWeight ?? W[dj];
+      PV[pj] = po?.transferVolume ?? V[dj];
+      // a pickup does not count against the stores / regions per route limits
+      cust[pj] = new Int32Array(0);
+      regions[pj] = new Int32Array(0);
+    }
+  }
+  const hasPairs = pick.some(x => x === 1);
+
   // ---- pairs that must not ride together
   const jobOfNode = new Map<number, number>();
   jobNodes.forEach((ns, j) => ns.forEach(n => jobOfNode.set(n, j)));
@@ -229,7 +267,61 @@ export function compileModel(
     kmCost: costPerKm * kmFactor * costScale,
     minCost: minScale,
     near, nodeOrder,
+    partner, pick, tdrop, PW, PV, hasPairs,
   };
+}
+
+/** Highest weight/volume along a job sequence (see loadProfile.ts); the plain sum without transfers */
+export function routePeak(m: Model, jobs: ArrayLike<number>): { w: number; v: number } {
+  let w = 0, v = 0;
+  for (let k = 0; k < jobs.length; k++) { const j = jobs[k]; if (!m.tdrop[j]) { w += m.W[j]; v += m.V[j]; } }
+  if (!m.hasPairs) return { w, v };
+  let pw = w, pv = v;
+  for (let k = 0; k < jobs.length; k++) {
+    const j = jobs[k];
+    if (m.pick[j]) { w += m.PW[j]; v += m.PV[j]; } else { w -= m.W[j]; v -= m.V[j]; }
+    if (w > pw) pw = w;
+    if (v > pv) pv = v;
+  }
+  return { w: pw, v: pv };
+}
+
+/** Every pickup of the sequence has its drop later in it, every drop its pickup earlier */
+export function pairsOk(m: Model, jobs: ArrayLike<number>): boolean {
+  if (!m.hasPairs) return true;
+  const pos = new Map<number, number>();
+  for (let k = 0; k < jobs.length; k++) pos.set(jobs[k], k);
+  for (let k = 0; k < jobs.length; k++) {
+    const j = jobs[k], q = m.partner[j];
+    if (q < 0) continue;
+    const kq = pos.get(q);
+    if (kq === undefined) return false;
+    if (m.pick[j] ? kq < k : kq > k) return false;
+  }
+  return true;
+}
+
+/**
+ * Load points of a route for O(1) insertion checks: L[0] = load leaving the warehouse, L[k+1] = after stop k.
+ * pre[k] = max(L[0..k]), suf[k] = max(L[k..n]) (suf[n+1] = -Infinity).
+ */
+export interface LoadPoints { Lw: Float64Array; Lv: Float64Array; preW: Float64Array; preV: Float64Array; sufW: Float64Array; sufV: Float64Array }
+export function loadPoints(m: Model, jobs: ArrayLike<number>): LoadPoints {
+  const n = jobs.length;
+  const Lw = new Float64Array(n + 1), Lv = new Float64Array(n + 1);
+  let w = 0, v = 0;
+  for (let k = 0; k < n; k++) { const j = jobs[k]; if (!m.tdrop[j]) { w += m.W[j]; v += m.V[j]; } }
+  Lw[0] = w; Lv[0] = v;
+  for (let k = 0; k < n; k++) {
+    const j = jobs[k];
+    if (m.pick[j]) { w += m.PW[j]; v += m.PV[j]; } else { w -= m.W[j]; v -= m.V[j]; }
+    Lw[k + 1] = w; Lv[k + 1] = v;
+  }
+  const preW = new Float64Array(n + 1), preV = new Float64Array(n + 1), sufW = new Float64Array(n + 2), sufV = new Float64Array(n + 2);
+  for (let k = 0; k <= n; k++) { preW[k] = Math.max(k ? preW[k - 1] : -Infinity, Lw[k]); preV[k] = Math.max(k ? preV[k - 1] : -Infinity, Lv[k]); }
+  sufW[n + 1] = -Infinity; sufV[n + 1] = -Infinity;
+  for (let k = n; k >= 0; k--) { sufW[k] = Math.max(sufW[k + 1], Lw[k]); sufV[k] = Math.max(sufV[k + 1], Lv[k]); }
+  return { Lw, Lv, preW, preV, sufW, sufV };
 }
 
 /** Load check of checkHardLimits: global limits, then at least one truck type allowed for the route */
