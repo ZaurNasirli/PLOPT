@@ -38,6 +38,7 @@ export const tr: RotaDict = {
     tabSoon: 'Bu sekme sonraki aşamada eklenecek.',
   },
   header: {
+    storeTemplate: 'Mağaza içe aktarımı için Excel şablonu',
     importStores: 'Mağazaları içe aktar',
     loadDemo: 'Demoyu yükle',
     demoName: 'Demo veriler',

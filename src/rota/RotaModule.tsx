@@ -15,6 +15,7 @@ import { Btn, IconBtn } from './components/ui';
 import { FilterBar } from './components/FilterBar';
 import { BalancePanel } from './components/BalancePanel';
 import { StoreImportFlow } from './components/StoreImportFlow';
+import { downloadStoreTemplate } from './data/storeTemplate';
 import { generateDemoDataset } from './data/demo';
 import { RulesTab } from './components/rules/RulesTab';
 import { OptimizeButton } from './components/OptimizePanel';
@@ -270,6 +271,7 @@ const RotaModule: React.FC = () => {
           <IconBtn label={t.header.redo} disabled={!canRedo} onClick={() => rotaStore.redo()}><Redo2 size={15} /></IconBtn>
           <span className="w-px h-6 bg-ink-200 mx-1" />
           <Btn icon={<Upload size={14} />} onClick={() => fileRef.current?.click()}>{t.header.importStores}</Btn>
+          <IconBtn label={t.header.storeTemplate} onClick={downloadStoreTemplate}><FileSpreadsheet size={15} /></IconBtn>
           {!hasData && <Btn icon={<Sparkles size={14} />} variant="ghost" onClick={() => handleImport(generateDemoDataset(t.header.demoName))}>{t.header.loadDemo}</Btn>}
           {hasData && (
             <IconBtn
@@ -396,6 +398,9 @@ const EmptyState: React.FC<{ onImport: () => void; onDemo: () => void }> = ({ on
           <Btn variant="primary" icon={<Upload size={14} />} onClick={onImport}>{t.empty.importBtn}</Btn>
           <Btn icon={<Sparkles size={14} />} onClick={onDemo}>{t.empty.demoBtn}</Btn>
         </div>
+        <button type="button" onClick={downloadStoreTemplate} className="mt-3 inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-brand-700 hover:underline cursor-pointer">
+          <FileSpreadsheet size={14} /> {t.header.storeTemplate}
+        </button>
       </div>
     </div>
   );

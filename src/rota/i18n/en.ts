@@ -38,6 +38,7 @@ export const en: RotaDict = {
     tabSoon: 'This tab arrives in a later stage.',
   },
   header: {
+    storeTemplate: 'Excel template for the store import',
     importStores: 'Import stores',
     loadDemo: 'Load demo',
     demoName: 'Demo data',

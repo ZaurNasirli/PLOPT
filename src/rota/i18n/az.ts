@@ -38,6 +38,7 @@ export const az: RotaDict = {
     tabSoon: 'Bu bölmə növbəti mərhələdə əlavə olunacaq.',
   },
   header: {
+    storeTemplate: 'Mağaza idxalı üçün Excel şablonu',
     importStores: 'Mağazaları idxal et',
     loadDemo: 'Demonu yüklə',
     demoName: 'Demo məlumatlar',

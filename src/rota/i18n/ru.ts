@@ -37,6 +37,7 @@ export const ru = {
     tabSoon: 'Эта вкладка появится на следующем этапе.',
   },
   header: {
+    storeTemplate: 'Шаблон Excel для импорта магазинов',
     importStores: 'Импорт магазинов',
     loadDemo: 'Загрузить демо',
     demoName: 'Демо-данные',
