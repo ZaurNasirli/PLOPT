@@ -7,6 +7,7 @@ Copied from public GitHub repositories on 2026-11-25 and read before installing.
 | frontend-design | anthropics/skills (skills/frontend-design) | Apache-2.0 (LICENSE.txt) | none |
 | ui-ux-pro-max | nextlevelbuilder/ui-ux-pro-max-skill (.claude/skills/ui-ux-pro-max) | MIT | script paths made project-relative; tests removed |
 | refactoring-ui | edisonmbli/refactoring-ui-skill (skills/refactoring-ui) | MIT (see ATTRIBUTION.md) | none |
+| graphify | Graphify-Labs/graphify (graphify/skill.md + skills/claude/references) | see LICENSE | copied as SKILL.md; CLI (`graphifyy`) not installed in this environment |
 | oil-ui | oil-oil/oil-ui | MIT | removed remote update check (it could self-update via `npx`), its pre-approved commands, and the paid oiloil image service |
 
 Scripts use only the Python standard library / Node built-ins; `oil-ui/scripts/curate-media.mjs` can download public-domain images from museum APIs when asked.
