@@ -9,3 +9,6 @@ dist/
 
 # Rota module source material (data, reference scripts, LogistikPro archive) — kept out of git
 _rota_import/
+
+# graphify knowledge graph (rebuild: graphify update .)
+graphify-out/
